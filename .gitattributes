@@ -1,0 +1,6 @@
+* text=auto eol=lf
+
+# Output of `codex app-server generate-ts`. Committed on purpose, but collapsed
+# in reviews so a Codex upgrade does not bury the real diff.
+src/codex/protocol/generated/** linguist-generated=true
+package-lock.json -diff
