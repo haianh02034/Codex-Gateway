@@ -120,6 +120,13 @@ export class ConversationsService {
     return this.toView(await this.requireOwned(user, id));
   }
 
+  /** Renames a conversation. Only the label changes; the thread is untouched. */
+  async rename(user: AuthUser, id: string, title: string): Promise<ConversationView> {
+    const conversation = await this.requireOwned(user, id);
+    conversation.title = title.trim().slice(0, 200);
+    return this.toView(await conversation.save());
+  }
+
   /**
    * Loads the thread back into the app-server and reports its live state.
    *

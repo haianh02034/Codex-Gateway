@@ -6,7 +6,7 @@ Frontend không bao giờ nói chuyện trực tiếp với Codex. Mọi thứ �
 xác thực người dùng, phân tách dữ liệu giữa các user, và bọc kín giao thức JSON-RPC
 của Codex.
 
-> **Trạng thái: Phase 7 — Production.**
+> **Trạng thái: hoàn tất Phase 0–7 + giao diện Next.js.**
 > Kiến trúc đầy đủ và thứ tự 8 phase nằm ở [`docs/codex-gateway-blueprint.md`](docs/codex-gateway-blueprint.md).
 
 ---
@@ -52,9 +52,19 @@ npm run auth:hash -- "mat-khau-cua-ban"
 ## Chạy
 
 ```bash
-npm run start:dev     # watch mode
-npm run start:prod    # sau khi npm run build
+npm run start:dev     # gateway, cổng 3000
 ```
+
+Giao diện web nằm ở [`web/`](web) và chạy riêng:
+
+```bash
+cd web
+npm install
+npm run dev           # cổng 3001
+```
+
+Cổng 3001 không phải tuỳ tiện: gateway chỉ chấp nhận origin nằm trong
+`CORS_ORIGINS`, và mặc định là `http://localhost:3001`. Đổi cổng thì phải đổi cả hai.
 
 ---
 

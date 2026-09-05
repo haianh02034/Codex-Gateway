@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -8,6 +18,7 @@ import {
   ResumedConversation,
 } from './conversations.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
+import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { MessageView, MessagesService, SendMessageResult } from './messages.service';
 
@@ -40,6 +51,15 @@ export class ConversationsController {
   @Get(':id')
   get(@CurrentUser() user: AuthUser, @Param('id') id: string): Promise<ConversationView> {
     return this.conversations.getForUser(user, id);
+  }
+
+  @Patch(':id')
+  rename(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateConversationDto,
+  ): Promise<ConversationView> {
+    return this.conversations.rename(user, id, dto.title);
   }
 
   /** Loads the thread back into Codex and reports its live state. */
