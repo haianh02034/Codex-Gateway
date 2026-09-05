@@ -1,5 +1,6 @@
 import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
 
+import { CodexClientService, CodexClientStatus } from '../codex/app-server/codex-client.service';
 import { CodexBinaryService } from '../codex/binary/codex-binary.service';
 import { Public } from '../common/decorators/public.decorator';
 
@@ -9,15 +10,21 @@ interface LivenessResponse {
 }
 
 interface CodexHealthResponse {
-  status: 'ok' | 'unavailable';
-  version: string | null;
-  source: 'bundled' | 'override' | null;
+  status: 'ok' | 'degraded' | 'unavailable';
+  binary: {
+    version: string | null;
+    source: 'bundled' | 'override' | null;
+  };
+  appServer: CodexClientStatus | null;
   detail: string | null;
 }
 
 @Controller('health')
 export class HealthController {
-  constructor(private readonly codexBinary: CodexBinaryService) {}
+  constructor(
+    private readonly codexBinary: CodexBinaryService,
+    private readonly codexClient: CodexClientService,
+  ) {}
 
   /**
    * Liveness for the load balancer. Public and deliberately uninformative —
@@ -30,30 +37,38 @@ export class HealthController {
   }
 
   /**
-   * Codex runtime readiness. Behind authentication because the path and
-   * version identify the host's toolchain.
+   * Codex runtime readiness. Behind authentication because the path, version
+   * and Codex home all describe the host's toolchain.
    *
-   * Phase 0 checks only that the executable runs. Whether Codex is logged in
-   * is a Phase 2 question, and whether the app-server responds is Phase 1.
+   * `degraded` means the executable is fine but the app-server connection is
+   * not — worth separating, because only the second one recovers on its own.
    */
   @Get('codex')
   @HttpCode(HttpStatus.OK)
   async codex(): Promise<CodexHealthResponse> {
+    let binaryVersion: string | null = null;
+    let binarySource: 'bundled' | 'override' | null = null;
+
     try {
       const info = await this.codexBinary.describe();
-      return {
-        status: 'ok',
-        version: info.version,
-        source: info.source,
-        detail: null,
-      };
+      binaryVersion = info.version;
+      binarySource = info.source;
     } catch (error) {
       return {
         status: 'unavailable',
-        version: null,
-        source: null,
+        binary: { version: null, source: null },
+        appServer: null,
         detail: (error as Error).message,
       };
     }
+
+    const appServer = this.codexClient.getStatus();
+
+    return {
+      status: appServer.connected ? 'ok' : 'degraded',
+      binary: { version: binaryVersion, source: binarySource },
+      appServer,
+      detail: appServer.connected ? null : (appServer.lastError ?? 'app-server is not connected'),
+    };
   }
 }

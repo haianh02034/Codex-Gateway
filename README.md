@@ -6,7 +6,7 @@ Frontend không bao giờ nói chuyện trực tiếp với Codex. Mọi thứ �
 xác thực người dùng, phân tách dữ liệu giữa các user, và bọc kín giao thức JSON-RPC
 của Codex.
 
-> **Trạng thái: Phase 0 — Foundation.**
+> **Trạng thái: Phase 1 — Codex Client.**
 > Kiến trúc đầy đủ và thứ tự 8 phase nằm ở [`docs/codex-gateway-blueprint.md`](docs/codex-gateway-blueprint.md).
 
 ---
@@ -79,7 +79,7 @@ tất cả — nên từ Phase 2, các endpoint login/logout của Codex nằm s
 | `POST` | `/api/auth/login` | công khai |
 | `GET` | `/api/auth/me` | cần đăng nhập |
 | `GET` | `/health` | công khai — liveness cho load balancer |
-| `GET` | `/health/codex` | cần đăng nhập — phiên bản và đường dẫn binary |
+| `GET` | `/health/codex` | cần đăng nhập — binary + trạng thái app-server |
 
 Xác thực **bật mặc định**: `JwtAuthGuard` đăng ký toàn cục trong `app.module.ts`.
 Route muốn mở phải khai báo `@Public()` — mỗi lần dùng decorator đó là một lỗ thủng
@@ -130,8 +130,9 @@ Không bao giờ sửa tay. Nâng version Codex trong `package.json` rồi chạ
 src/
 ├── auth/          xác thực user của app (JWT) — Phase 3 đổi UserStore sang Mongo
 ├── codex/
-│   ├── binary/    tìm executable Codex
-│   └── protocol/  bindings generated — không sửa tay
+│   ├── app-server/  client JSON-RPC hai chiều
+│   ├── binary/      tìm executable Codex
+│   └── protocol/    bindings generated — không sửa tay
 ├── common/        guards, decorators, exception filter
 ├── config/        env validation + config tree có kiểu
 └── health/
@@ -139,9 +140,64 @@ src/
 
 Không nơi nào ngoài `src/config/` đọc `process.env`.
 
+---
+
+## Codex client
+
+Gateway nói chuyện với Codex qua `codex app-server`, spawn bằng stdio.
+
+**Giao thức đã đo trên binary 0.153.4**, không lấy từ tài liệu:
+
+| | |
+|---|---|
+| Framing | JSONL — một JSON mỗi dòng, không `Content-Length` |
+| Request | `{id, method, params}` — **không** có field `jsonrpc` |
+| Response | `{id, result}` hoặc `{id, error:{code, message}}` |
+| Handshake | `initialize` → response → notification `initialized` |
+
+Ba lớp, tách bằng interface:
+
+```
+CodexClientService     request() / notify() / on()
+        │              không ai bên ngoài biết envelope
+CodexTransport         cổng — stdio hôm nay, ws:// ở Phase 7
+        │
+StdioTransport         spawn + ghép frame JSONL
+```
+
+### Vì sao hai chiều ngay từ đầu
+
+Approval của Codex đến dưới dạng **request từ server**, và app-server **chờ ta trả lời**.
+Nếu Phase 1 chỉ dựng luồng event một chiều thì tới Phase 5 phải viết lại toàn bộ lớp client.
+
+`ServerRequestRegistry` đã có sẵn đường đi đó. Hiện chưa đăng ký responder nào, nên mọi
+request đều rơi vào từ chối an toàn — đúng shape mà từng method mong đợi:
+
+| Method | Trả về khi chưa có UI |
+|---|---|
+| `item/commandExecution/requestApproval` | `{decision: "decline"}` |
+| `item/fileChange/requestApproval` | `{decision: "decline"}` |
+| `execCommandApproval`, `applyPatchApproval` | `{decision:{denied:{rejection}}}` |
+| còn lại | error `-32601` |
+
+Điều quan trọng nhất: **không bao giờ im lặng**. Im lặng làm app-server treo.
+Phase 5 chỉ cần `registry.register(method, responder)` để thay chỗ từ chối bằng người thật.
+
+### CODEX_HOME
+
+Log lúc boot in ra `Codex home:` lấy từ `InitializeResponse`, tức là sự thật do server báo
+chứ không phải giá trị ta đoán. Biến này **kế thừa từ môi trường** của process cha, nên nó
+có thể không phải `~/.codex` như bạn tưởng. Nó quyết định credential và lịch sử thread nằm ở
+đâu — đáng nhìn mỗi lần khởi động.
+
 ## Phase tiếp theo
 
-**Phase 1 — Codex Client:** spawn `codex app-server` qua stdio, JSON-RPC hai chiều,
-kèm khung xử lý `ServerRequest` ngay từ đầu. Approval của Codex là request
-server → client mà app-server *chờ trả lời*; dựng client một chiều ở phase này đồng
-nghĩa với việc phải viết lại toàn bộ ở Phase 5.
+**Phase 2 — Codex Auth:** `account/login/start` trả `authUrl` cho frontend mở trình duyệt,
+hoàn tất bằng notification `account/login/completed` (push, không polling).
+
+Hai điều đã chốt trước cho phase đó:
+
+- Endpoint login/logout nằm dưới `/api/admin/` sau `AdminGuard`. Codex chỉ có một identity
+  cho cả máy, nên một user logout sẽ logout tất cả.
+- `GetAuthStatusResponse` chứa `authToken` là access token thật. Phải map thủ công,
+  không được trả nguyên object ra frontend.
