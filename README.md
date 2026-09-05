@@ -426,41 +426,55 @@ làm gì, trên workspace của ai, do ai duyệt.
 
 ---
 
-## Sandbox trên Windows chưa được cấu hình
+## Sandbox nền tảng
 
-Phát hiện khi chạy thật, và **ảnh hưởng trực tiếp tới Phase 6**:
+**Bắt buộc phải cấu hình**, nếu không Codex sẽ không sửa được file — mà không báo gì.
 
+```bash
+npm run codex:sandbox              # kiểm tra
+npm run codex:sandbox -- --setup   # cấu hình
 ```
-windowsSandbox/readiness -> {"status":"notConfigured"}
-```
 
-Gateway gửi `sandbox: "workspace-write"` lúc `thread/start`, nhưng máy chủ áp dụng
-`{"type":"readOnly"}`. Đo trực tiếp:
+Gateway gửi `sandbox: "workspace-write"` lúc `thread/start`. Khi sandbox chưa sẵn sàng,
+máy chủ **âm thầm hạ xuống** `readOnly` thay vì chạy không sandbox. Đo trực tiếp, trước và
+sau khi cấu hình:
 
-| Gửi lên | Máy chủ áp dụng |
-|---|---|
-| `workspace-write` | `readOnly` ← **bị hạ ngầm** |
-| `read-only` | `readOnly` |
-| `danger-full-access` | `dangerFullAccess` |
-| `workspaceWrite` | lỗi — sai tên biến thể |
+| Gửi lên | Chưa cấu hình | Đã cấu hình |
+|---|---|---|
+| `workspace-write` | `readOnly` ← **hạ ngầm** | `workspaceWrite` |
+| bỏ trống | `readOnly` | `workspaceWrite` |
+| `read-only` | `readOnly` | `readOnly` |
+| `danger-full-access` | `dangerFullAccess` | `dangerFullAccess` |
+| `workspaceWrite` | lỗi — sai tên biến thể | lỗi |
 
-Codex **từ chối cấp quyền ghi khi chưa có sandbox** thay vì chạy không sandbox. Đó là hành
-vi đúng, nhưng nó im lặng: agent không sửa được file mà không báo gì tại chỗ.
-
-Nên gateway hỏi `windowsSandbox/readiness` mỗi lần kết nối, cảnh báo lúc boot, và đưa vào
-`/health/codex`:
+Từ chối cấp quyền ghi khi chưa có sandbox là hành vi đúng, nhưng nó im lặng. Nên gateway
+đọc `windowsSandbox/readiness` mỗi lần kết nối, cảnh báo lúc boot nếu chưa sẵn sàng, và
+đưa vào `/health/codex`:
 
 ```json
-"appServer": { "sandbox": "notConfigured", ... }
+"appServer": { "sandbox": "ready", ... }
 ```
 
-Muốn Codex ghi được file thì chạy `codex-windows-sandbox-setup.exe` trong
-`node_modules/@openai/codex-win32-x64/vendor/.../codex-resources/`.
+Lưu ý `writableRoots` trả về **rỗng** — vùng ghi được suy ra từ `cwd`, không liệt kê.
+
+### Sandbox làm gì, approval làm gì
+
+Hai thứ khác nhau, đã kiểm chứng trên máy thật:
+
+| Hành động | Kết quả |
+|---|---|
+| Ghi file **trong** workspace | chạy thẳng, **không hỏi** — sandbox đã cấp quyền đó |
+| Ghi file **ngoài** workspace | sandbox chặn → **leo thang thành approval** |
+| Từ chối approval đó | file **không** được tạo |
+
+Sandbox là lớp thực thi; approval chỉ xuất hiện khi cần **thoát** khỏi nó. Đừng trông đợi
+approval cho mọi thao tác — nếu thấy im lặng bất thường, kiểm tra `sandbox` trong health
+trước tiên.
 
 ---
 
 ## Phase tiếp theo
 
 **Phase 6 — Workspace:** project với `cwd` riêng, allowlist root, và containment check
-(chặn `..`, symlink, UNC path). Hai lớp phòng thủ — NestJS validate *và* Codex enforce —
-nhưng lớp thứ hai chỉ thực sự có hiệu lực sau khi sandbox Windows được cấu hình.
+(chặn `..`, symlink, UNC path). Hai lớp phòng thủ — NestJS validate *và* Codex enforce.
+Lớp thứ hai **đã hoạt động**: sandbox đã cấu hình và đã chứng minh chặn được ghi ra ngoài.

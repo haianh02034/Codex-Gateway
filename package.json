@@ -17,6 +17,7 @@
     "test:cov": "jest --coverage",
     "codex:protocol": "node scripts/generate-protocol.js",
     "codex:version": "node scripts/codex.js --version",
+    "codex:sandbox": "node scripts/sandbox-setup.js",
     "auth:hash": "node scripts/hash-password.js"
   },
   "dependencies": {
