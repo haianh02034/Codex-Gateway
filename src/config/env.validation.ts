@@ -98,13 +98,15 @@ export class EnvironmentVariables {
   APPROVAL_TIMEOUT_MS: number = 300_000;
 
   /**
-   * Directory every Codex thread runs in. Required, and deliberately so: with
-   * no cwd Codex would operate in the gateway's own working directory, which
-   * holds this source tree and .env.
+   * Comma-separated directories the gateway may run threads in. Required, and
+   * deliberately so: with no cwd Codex would operate in the gateway's own
+   * working directory, which holds this source tree and .env.
+   *
+   * Nothing outside these roots is reachable, however a project is phrased.
    */
   @IsString()
-  @IsNotEmpty({ message: 'CODEX_WORKSPACE_ROOT is required' })
-  CODEX_WORKSPACE_ROOT!: string;
+  @IsNotEmpty({ message: 'CODEX_WORKSPACE_ROOTS is required' })
+  CODEX_WORKSPACE_ROOTS!: string;
 
   @IsString()
   @IsOptional()

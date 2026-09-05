@@ -29,8 +29,8 @@ export interface CodexConfig {
   binaryOverride: string;
   /** Overrides CODEX_HOME for spawned Codex processes. Empty means the default. */
   home: string;
-  /** Absolute directory every thread runs in. Validated at boot. */
-  workspaceRoot: string;
+  /** Absolute directories threads may run in. Validated at boot. */
+  workspaceRoots: string[];
 }
 
 export interface GatewayConfig {
@@ -75,7 +75,10 @@ export function configuration(): GatewayConfig {
     codex: {
       binaryOverride: env.CODEX_BIN || '',
       home: env.CODEX_HOME || '',
-      workspaceRoot: env.CODEX_WORKSPACE_ROOT!,
+      workspaceRoots: (env.CODEX_WORKSPACE_ROOTS ?? '')
+        .split(',')
+        .map((root) => root.trim())
+        .filter(Boolean),
     },
   };
 }

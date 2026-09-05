@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 
 import { CodexModule } from '../codex/codex.module';
+import { ProjectsModule } from '../projects/projects.module';
 import { RuntimeConfig } from '../config/configuration';
 import { ConversationStreamService } from './conversation-stream.service';
 import { ConversationsController } from './conversations.controller';
@@ -23,6 +24,7 @@ import { TurnQueueService } from './turn-queue.service';
       { name: CodexEvent.name, schema: CodexEventSchema },
     ]),
     CodexModule,
+    ProjectsModule,
   ],
   controllers: [ConversationsController],
   providers: [

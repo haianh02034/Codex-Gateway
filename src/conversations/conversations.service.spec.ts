@@ -1,5 +1,4 @@
 import { NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Model, Types } from 'mongoose';
 
 import { AuthUser, UserRole } from '../auth/auth.types';
@@ -7,6 +6,7 @@ import { CodexClientService } from '../codex/app-server/codex-client.service';
 import { ConversationsService } from './conversations.service';
 import { ConversationDocument, ConversationStatus } from './schemas/conversation.schema';
 import { ThreadLockService } from './thread-lock.service';
+import { ProjectsService } from '../projects/projects.service';
 import { ThreadRegistryService } from './thread-registry.service';
 
 const ALICE: AuthUser = {
@@ -76,9 +76,9 @@ describe('ConversationsService', () => {
     model = new FakeConversationModel();
     codex = { requestOrUnavailable: jest.fn(), isConnected: () => true };
 
-    const config = {
-      getOrThrow: () => ({ workspaceRoot: process.cwd(), binaryOverride: '', home: '' }),
-    } as unknown as ConfigService;
+    const projects = {
+      workspaceFor: jest.fn().mockResolvedValue('/workspaces/users/alice'),
+    } as unknown as ProjectsService;
 
     const registry = {
       remember: jest.fn(),
@@ -90,7 +90,7 @@ describe('ConversationsService', () => {
       codex as unknown as CodexClientService,
       new ThreadLockService(),
       registry,
-      config,
+      projects,
     );
     jest.spyOn(service['logger'], 'log').mockImplementation(() => undefined);
     jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);

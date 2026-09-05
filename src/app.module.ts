@@ -10,14 +10,18 @@ import { ConfigModule } from './config/config.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
+import { ProjectsModule } from './projects/projects.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { WorkspaceModule } from './workspace/workspace.module';
 
 @Module({
   imports: [
     ConfigModule,
     DatabaseModule,
+    WorkspaceModule,
     AuthModule,
     CodexModule,
+    ProjectsModule,
     ConversationsModule,
     ApprovalsModule,
     RealtimeModule,

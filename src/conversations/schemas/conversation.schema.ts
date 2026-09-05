@@ -39,6 +39,13 @@ export class Conversation {
   @Prop({ required: true, enum: Object.values(ConversationStatus), default: ConversationStatus.Idle })
   status!: ConversationStatus;
 
+  /**
+   * Project this belongs to, or null for the user's personal workspace.
+   * Kept nullable so a conversation survives its project being deleted.
+   */
+  @Prop({ type: Types.ObjectId, ref: 'Project', default: null, index: true })
+  projectId!: Types.ObjectId | null;
+
   /** Directory the thread runs in, recorded as it was at creation time. */
   @Prop({ required: true })
   workspacePath!: string;

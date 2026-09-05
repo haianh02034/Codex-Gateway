@@ -6,7 +6,7 @@ Frontend không bao giờ nói chuyện trực tiếp với Codex. Mọi thứ �
 xác thực người dùng, phân tách dữ liệu giữa các user, và bọc kín giao thức JSON-RPC
 của Codex.
 
-> **Trạng thái: Phase 5 — Approval.**
+> **Trạng thái: Phase 6 — Workspace.**
 > Kiến trúc đầy đủ và thứ tự 8 phase nằm ở [`docs/codex-gateway-blueprint.md`](docs/codex-gateway-blueprint.md).
 
 ---
@@ -79,7 +79,12 @@ tất cả — nên từ Phase 2, các endpoint login/logout của Codex nằm s
 |---|---|---|
 | `POST` | `/api/auth/login` | công khai |
 | `GET` | `/api/auth/me` | cần đăng nhập |
-| `POST` | `/api/conversations` | cần đăng nhập — tạo thread Codex |
+| `GET` | `/api/projects` | cần đăng nhập — **chỉ của mình** |
+| `POST` | `/api/projects` | cần đăng nhập — path phải trong allowlist |
+| `GET` | `/api/projects/:id` | cần đăng nhập |
+| `PATCH` | `/api/projects/:id` | cần đăng nhập — đổi tên |
+| `DELETE` | `/api/projects/:id` | cần đăng nhập — chỉ xoá bản ghi |
+| `POST` | `/api/conversations` | cần đăng nhập — nhận `projectId` tuỳ chọn |
 | `GET` | `/api/conversations` | cần đăng nhập — **chỉ của mình** |
 | `GET` | `/api/conversations/:id` | cần đăng nhập — chỉ của mình |
 | `POST` | `/api/conversations/:id/resume` | cần đăng nhập — nạp lại thread |
@@ -473,8 +478,56 @@ trước tiên.
 
 ---
 
+## Workspace
+
+`CODEX_WORKSPACE_ROOTS` là danh sách thư mục gateway được phép chạy thread, cách nhau bằng
+dấu phẩy. **Không gì ngoài các root đó tới được**, dù đường dẫn viết cách nào.
+
+### Lớp 1 — NestJS validate
+
+`WorkspacePathService.resolveWithin()` là cổng duy nhất. Mỗi phép kiểm tồn tại vì một lối
+thoát cụ thể:
+
+| Chặn | Vì sao |
+|---|---|
+| Đường dẫn tương đối | không so sánh được với root |
+| `\server\share`, `//host/share` | chạm tới ổ mạng, và né được chuẩn hoá |
+| Byte `NUL` | cắt cụt đường dẫn trong native call — cái kiểm và cái mở khác nhau |
+| `..` | `path.resolve` gộp lại trước khi so |
+| **Symlink / junction** | `realpath` bám tới đích thật; link *nằm trong* root vẫn có thể trỏ ra ngoài |
+| Thư mục không tồn tại / là file | không realpath được, và không phải nơi chạy được |
+| `\/srv/work-secrets` khi root là `\/srv/work` | so sánh có kèm dấu phân cách, không phải `startsWith` trần |
+
+Đường dẫn lưu vào DB là **dạng canonical** đã resolve, không phải chuỗi người dùng gõ —
+vì đó mới là thứ sandbox thực thi. Lưu bản gõ tay sẽ khiến giá trị lưu và giá trị được
+thực thi lệch nhau.
+
+Kiểm lại **mỗi lần dùng**, không chỉ lúc tạo: allowlist có thể đã bị thu hẹp, hoặc thư mục
+đã bị thay bằng một symlink, kể từ lúc project được thêm.
+
+### Lớp 2 — Codex enforce
+
+`thread/start` chạy với `cwd` = thư mục project và `sandbox: workspace-write`. Sandbox mới
+là thứ thực sự chặn. Đã kiểm chứng: yêu cầu ghi ra thư mục cha bị sandbox chặn → leo thang
+thành approval → từ chối → **file không được tạo**.
+
+### Không có project thì sao
+
+Mỗi user được một thư mục **riêng**: `<root>/users/<userId>`, gateway tự tạo.
+
+Không dùng chung một thư mục mặc định, vì `workspace-write` cho agent đọc *và* ghi khắp
+`cwd` — một thư mục dùng chung đồng nghĩa agent của người này đi lại được trong file của
+mọi người khác. Đường dẫn đó do gateway ghép từ root và userId, không lấy từ client, nên
+tự tạo nó là an toàn.
+
+Path của project thì **phải có sẵn** — gateway không tạo thư mục từ chuỗi người dùng nhập.
+
+---
+
 ## Phase tiếp theo
 
-**Phase 6 — Workspace:** project với `cwd` riêng, allowlist root, và containment check
-(chặn `..`, symlink, UNC path). Hai lớp phòng thủ — NestJS validate *và* Codex enforce.
-Lớp thứ hai **đã hoạt động**: sandbox đã cấu hình và đã chứng minh chặn được ghi ra ngoài.
+**Phase 7 — Production:** single-node hoặc sticky routing, broadcast rate limit,
+`--ws-auth` nếu listener không còn loopback.
+
+Ràng buộc đã biết: thread state nằm trên đĩa local và daemon gắn với máy, nên Nginx
+round-robin sang hai instance sẽ làm resume thread fail.

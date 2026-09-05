@@ -1,15 +1,10 @@
-import { existsSync, statSync } from 'node:fs';
-import path from 'node:path';
-
 import {
   BadGatewayException,
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
-  OnModuleInit,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
@@ -17,14 +12,15 @@ import { AuthUser } from '../auth/auth.types';
 import { CodexClientService, CodexRpcError } from '../codex/app-server/codex-client.service';
 import type { ThreadResumeResponse } from '../codex/protocol/generated/v2/ThreadResumeResponse';
 import type { ThreadStartResponse } from '../codex/protocol/generated/v2/ThreadStartResponse';
-import { CodexConfig } from '../config/configuration';
 import { Conversation, ConversationDocument, ConversationStatus } from './schemas/conversation.schema';
 import { ThreadLockService } from './thread-lock.service';
+import { ProjectsService } from '../projects/projects.service';
 import { ThreadRegistryService } from './thread-registry.service';
 
 /** A conversation as the API returns it. Never exposes another user's row. */
 export interface ConversationView {
   id: string;
+  projectId: string | null;
   title: string;
   status: ConversationStatus;
   workspacePath: string;
@@ -56,9 +52,8 @@ export interface ResumedConversation extends ConversationView {
  * caller that an id exists but is not theirs is itself a disclosure.
  */
 @Injectable()
-export class ConversationsService implements OnModuleInit {
+export class ConversationsService {
   private readonly logger = new Logger(ConversationsService.name);
-  private readonly workspaceRoot: string;
 
   constructor(
     @InjectModel(Conversation.name)
@@ -66,29 +61,21 @@ export class ConversationsService implements OnModuleInit {
     private readonly codex: CodexClientService,
     private readonly locks: ThreadLockService,
     private readonly registry: ThreadRegistryService,
-    config: ConfigService,
-  ) {
-    this.workspaceRoot = path.resolve(config.getOrThrow<CodexConfig>('codex').workspaceRoot);
-  }
+    private readonly projects: ProjectsService,
+  ) {}
 
-  /**
-   * Refuses to start with an unusable workspace root. Booting anyway would mean
-   * threads silently running somewhere unintended.
-   */
-  onModuleInit(): void {
-    if (!existsSync(this.workspaceRoot) || !statSync(this.workspaceRoot).isDirectory()) {
-      throw new Error(
-        `CODEX_WORKSPACE_ROOT is not a directory: ${this.workspaceRoot}. ` +
-          'Create it, or point the variable at an existing folder.',
-      );
-    }
-    this.logger.log(`Workspace root: ${this.workspaceRoot}`);
-  }
+  /** Starts a Codex thread in the right directory and records who owns it. */
+  async create(
+    user: AuthUser,
+    title: string,
+    projectId: string | null,
+  ): Promise<ConversationView> {
+    // Resolves the project's directory, or the caller's private one. Throws
+    // before any thread exists if the path no longer passes the allowlist.
+    const cwd = await this.projects.workspaceFor(user, projectId);
 
-  /** Starts a Codex thread and records who it belongs to. */
-  async create(user: AuthUser, title: string): Promise<ConversationView> {
     const response = await this.codex.requestOrUnavailable<ThreadStartResponse>('thread/start', {
-      cwd: this.workspaceRoot,
+      cwd,
       // Requested, but not always granted: Codex silently applies read-only
       // when the platform sandbox is not configured, rather than running
       // unsandboxed. /health/codex reports which one is actually in force.
@@ -101,6 +88,7 @@ export class ConversationsService implements OnModuleInit {
 
     const created = await this.conversations.create({
       userId: new Types.ObjectId(user.id),
+      projectId: projectId ? new Types.ObjectId(projectId) : null,
       codexThreadId: response.thread.id,
       title: title.trim(),
       status: ConversationStatus.Idle,
@@ -265,6 +253,7 @@ export class ConversationsService implements OnModuleInit {
   private toView(conversation: ConversationDocument): ConversationView {
     return {
       id: conversation._id.toString(),
+      projectId: conversation.projectId?.toString() ?? null,
       title: conversation.title,
       status: conversation.status,
       workspacePath: conversation.workspacePath,

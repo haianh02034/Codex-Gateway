@@ -34,7 +34,7 @@ export class ConversationsController {
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateConversationDto,
   ): Promise<ConversationView> {
-    return this.conversations.create(user, dto.title ?? '');
+    return this.conversations.create(user, dto.title ?? '', dto.projectId ?? null);
   }
 
   @Get(':id')
