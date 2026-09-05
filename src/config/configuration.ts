@@ -14,16 +14,23 @@ export interface AuthConfig {
   adminPasswordHash: string;
 }
 
+export interface DatabaseConfig {
+  uri: string;
+}
+
 export interface CodexConfig {
   /** Explicit binary path. Empty means "resolve from node_modules". */
   binaryOverride: string;
   /** Overrides CODEX_HOME for spawned Codex processes. Empty means the default. */
   home: string;
+  /** Absolute directory every thread runs in. Validated at boot. */
+  workspaceRoot: string;
 }
 
 export interface GatewayConfig {
   app: AppConfig;
   auth: AuthConfig;
+  database: DatabaseConfig;
   codex: CodexConfig;
 }
 
@@ -50,9 +57,13 @@ export function configuration(): GatewayConfig {
       adminEmail: env.ADMIN_EMAIL!,
       adminPasswordHash: env.ADMIN_PASSWORD_HASH!,
     },
+    database: {
+      uri: env.MONGODB_URI!,
+    },
     codex: {
       binaryOverride: env.CODEX_BIN || '',
       home: env.CODEX_HOME || '',
+      workspaceRoot: env.CODEX_WORKSPACE_ROOT!,
     },
   };
 }

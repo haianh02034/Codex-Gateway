@@ -77,7 +77,7 @@ export class CodexAuthService implements OnModuleInit {
 
     if (base.authenticated) {
       try {
-        const response = await this.client.request<GetAccountResponse>('account/read', {
+        const response = await this.call<GetAccountResponse>('account/read', {
           refreshToken: false,
         });
         const current = response.account;
@@ -250,18 +250,7 @@ export class CodexAuthService implements OnModuleInit {
     };
   }
 
-  /**
-   * Wraps a protocol call so a dead app-server reads as 503 rather than 500 —
-   * "Codex is not reachable" is a different problem from "the gateway broke".
-   */
-  private async call<TResult>(method: string, params?: unknown): Promise<TResult> {
-    try {
-      return await this.client.request<TResult>(method, params);
-    } catch (error) {
-      if (!this.client.isConnected()) {
-        throw new ServiceUnavailableException('The Codex app-server is not reachable');
-      }
-      throw error;
-    }
+  private call<TResult>(method: string, params?: unknown): Promise<TResult> {
+    return this.client.requestOrUnavailable<TResult>(method, params);
   }
 }

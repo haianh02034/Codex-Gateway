@@ -26,6 +26,18 @@ class FakeClient {
     return this.responses.get(method) as T;
   }
 
+  /** Mirrors the real client: an unreachable app-server surfaces as 503. */
+  async requestOrUnavailable<T>(method: string, params?: unknown): Promise<T> {
+    try {
+      return await this.request<T>(method, params);
+    } catch (error) {
+      if (!this.connected) {
+        throw new ServiceUnavailableException('The Codex app-server is not reachable');
+      }
+      throw error;
+    }
+  }
+
   on(method: string, listener: (params: unknown) => void): () => void {
     const existing = this.listeners.get(method) ?? [];
     existing.push(listener);

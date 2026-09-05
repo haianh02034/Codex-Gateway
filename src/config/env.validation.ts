@@ -67,6 +67,19 @@ export class EnvironmentVariables {
   ADMIN_PASSWORD_HASH!: string;
 
   @IsString()
+  @IsNotEmpty({ message: 'MONGODB_URI is required' })
+  MONGODB_URI!: string;
+
+  /**
+   * Directory every Codex thread runs in. Required, and deliberately so: with
+   * no cwd Codex would operate in the gateway's own working directory, which
+   * holds this source tree and .env.
+   */
+  @IsString()
+  @IsNotEmpty({ message: 'CODEX_WORKSPACE_ROOT is required' })
+  CODEX_WORKSPACE_ROOT!: string;
+
+  @IsString()
   @IsOptional()
   CODEX_BIN: string = '';
 

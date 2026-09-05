@@ -152,6 +152,26 @@ export class CodexClientService implements OnModuleInit, OnModuleDestroy {
     return this.dispatch<TResult>(method, params, options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
   }
 
+  /**
+   * Like request(), but reports an unreachable app-server as 503 instead of a
+   * generic failure. "Codex is not running" is an operational condition, not a
+   * bug in the gateway, and callers should not each re-derive that.
+   */
+  async requestOrUnavailable<TResult>(
+    method: string,
+    params?: unknown,
+    options: { timeoutMs?: number } = {},
+  ): Promise<TResult> {
+    try {
+      return await this.request<TResult>(method, params, options);
+    } catch (error) {
+      if (!this.connected) {
+        throw new ServiceUnavailableException('The Codex app-server is not reachable');
+      }
+      throw error;
+    }
+  }
+
   /** Sends a notification. Nothing comes back. */
   notify(method: string, params?: unknown): void {
     this.transport.send(params === undefined ? { method } : { method, params });

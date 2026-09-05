@@ -6,7 +6,7 @@ Frontend không bao giờ nói chuyện trực tiếp với Codex. Mọi thứ �
 xác thực người dùng, phân tách dữ liệu giữa các user, và bọc kín giao thức JSON-RPC
 của Codex.
 
-> **Trạng thái: Phase 2 — Codex Auth.**
+> **Trạng thái: Phase 3 — MongoDB + Thread.**
 > Kiến trúc đầy đủ và thứ tự 8 phase nằm ở [`docs/codex-gateway-blueprint.md`](docs/codex-gateway-blueprint.md).
 
 ---
@@ -15,6 +15,7 @@ của Codex.
 
 - Node.js >= 20
 - npm
+- MongoDB đang chạy (mặc định `mongodb://127.0.0.1:27017/codex-gateway`)
 
 Không cần cài `codex` toàn máy. Binary đi kèm `@openai/codex` được ghim trong
 `package.json`, nên phiên bản Codex mà gateway chạy không thể bị `codex update`
@@ -78,6 +79,14 @@ tất cả — nên từ Phase 2, các endpoint login/logout của Codex nằm s
 |---|---|---|
 | `POST` | `/api/auth/login` | công khai |
 | `GET` | `/api/auth/me` | cần đăng nhập |
+| `POST` | `/api/conversations` | cần đăng nhập — tạo thread Codex |
+| `GET` | `/api/conversations` | cần đăng nhập — **chỉ của mình** |
+| `GET` | `/api/conversations/:id` | cần đăng nhập — chỉ của mình |
+| `POST` | `/api/conversations/:id/resume` | cần đăng nhập — nạp lại thread |
+| `DELETE` | `/api/conversations/:id` | cần đăng nhập — xoá cả thread |
+| `GET` | `/api/admin/users` | **admin** |
+| `POST` | `/api/admin/users` | **admin** — tạo tài khoản |
+| `PATCH` | `/api/admin/users/:id/active` | **admin** — bật/tắt tài khoản |
 | `GET` | `/api/codex/auth/status` | cần đăng nhập — Codex đã login chưa |
 | `GET` | `/api/admin/codex/auth/status` | **admin** — kèm tài khoản và login đang chờ |
 | `POST` | `/api/admin/codex/auth/login` | **admin** — lấy URL đăng nhập |
@@ -243,11 +252,60 @@ Login đang chờ được giữ trong RAM và **mất khi restart gateway**. TT
 
 ---
 
+## Ranh giới sở hữu
+
+Đây là phần quan trọng nhất của toàn bộ project.
+
+App-server **không có khái niệm user**. `thread/list` không nhận filter theo chủ sở hữu và
+trả về mọi thread trên máy. Nên quyền sở hữu chỉ tồn tại ở một chỗ: collection
+`conversations` trong MongoDB.
+
+```
+request  →  JwtAuthGuard  →  requireOwned(userId, conversationId)  →  codexThreadId  →  Codex
+                                        ↑
+                            cổng duy nhất. Không route nào
+                            nhận threadId từ client.
+```
+
+Ba quy tắc, đã kiểm chứng bằng test và bằng HTTP thật:
+
+1. **Không bao giờ proxy `thread/list`.** Luôn query Mongo theo `userId` trước.
+2. **Trả 404, không phải 403**, cho conversation của người khác. Trả 403 là xác nhận id đó
+   có tồn tại — bản thân điều đó đã là rò rỉ.
+3. **Admin không phải superuser trên conversation.** Admin quản trị host và tài khoản;
+   admin đọc conversation của user khác vẫn nhận 404.
+
+### Vô hiệu hoá tài khoản chấm dứt phiên ngay
+
+Token được resolve lại với store trên *mỗi* request, nên `PATCH /admin/users/:id/active`
+với `false` làm token đang dùng chết ngay lập tức — không cần chờ hết hạn. Cũng vì vậy,
+**role đọc từ database chứ không từ claim trong token**.
+
+### Thread rỗng chưa ghi xuống đĩa
+
+Codex chỉ materialize thread lên đĩa khi nó **có nội dung**. Nên conversation vừa tạo mà
+chưa gửi tin nhắn nào thì `resume` trả 409 (`no rollout found`), và thread đó **không sống
+sót qua một lần restart app-server**.
+
+Phase 4 phải xử lý trường hợp thread biến mất: tạo thread mới và trỏ lại `codexThreadId`.
+
+### Thread lock
+
+`ThreadLockService` xếp hàng mọi thao tác theo từng thread, để hai request đồng thời không
+mở hai turn trên cùng một thread. Bản in-process này đúng chừng nào chỉ có một process
+gateway sở hữu thread — cùng giả định single-node mà thread state trên đĩa đã áp đặt.
+Phase 7 đổi sang Redis nếu điều đó không còn đúng.
+
+---
+
 ## Phase tiếp theo
 
-**Phase 3 — MongoDB + Thread:** schema, index, ownership guard, `thread/start` và
-`thread/resume` đi qua mapping userId → codexThreadId.
+**Phase 4 — Chat + WebSocket:** `turn/start`, stream `item/agentMessage/delta` qua WS,
+`turn/interrupt`, fair queue theo user.
 
-Đây là phase dựng ranh giới bảo mật thật: app-server không biết gì về user, threads là global
-theo máy, nên **Mongo là thứ duy nhất phân tách người dùng**. Không bao giờ được proxy
-`thread/list` ra API — nó trả về thread của mọi người.
+Ba điều đã chốt trước:
+
+- `turn/interrupt` cần `{threadId, turnId}` — `activeTurnId` đã có sẵn trong schema.
+- **Không persist delta.** Delta bắn theo từng token; chỉ stream qua WS và lưu
+  `item/completed`. Raw event nếu giữ thì đặt TTL 7 ngày.
+- Thread đang bận thì dùng `turn/steer` thay vì xếp hàng.
