@@ -6,7 +6,7 @@ Frontend không bao giờ nói chuyện trực tiếp với Codex. Mọi thứ �
 xác thực người dùng, phân tách dữ liệu giữa các user, và bọc kín giao thức JSON-RPC
 của Codex.
 
-> **Trạng thái: Phase 1 — Codex Client.**
+> **Trạng thái: Phase 2 — Codex Auth.**
 > Kiến trúc đầy đủ và thứ tự 8 phase nằm ở [`docs/codex-gateway-blueprint.md`](docs/codex-gateway-blueprint.md).
 
 ---
@@ -78,6 +78,11 @@ tất cả — nên từ Phase 2, các endpoint login/logout của Codex nằm s
 |---|---|---|
 | `POST` | `/api/auth/login` | công khai |
 | `GET` | `/api/auth/me` | cần đăng nhập |
+| `GET` | `/api/codex/auth/status` | cần đăng nhập — Codex đã login chưa |
+| `GET` | `/api/admin/codex/auth/status` | **admin** — kèm tài khoản và login đang chờ |
+| `POST` | `/api/admin/codex/auth/login` | **admin** — lấy URL đăng nhập |
+| `POST` | `/api/admin/codex/auth/login/cancel` | **admin** |
+| `POST` | `/api/admin/codex/auth/logout` | **admin** — đăng xuất cho *mọi* user |
 | `GET` | `/health` | công khai — liveness cho load balancer |
 | `GET` | `/health/codex` | cần đăng nhập — binary + trạng thái app-server |
 
@@ -190,14 +195,59 @@ chứ không phải giá trị ta đoán. Biến này **kế thừa từ môi tr
 có thể không phải `~/.codex` như bạn tưởng. Nó quyết định credential và lịch sử thread nằm ở
 đâu — đáng nhìn mỗi lần khởi động.
 
+## Đăng nhập Codex
+
+Codex chỉ có **một identity cho cả máy**, nên login/logout là hành động phạm vi toàn host và
+nằm sau `AdminGuard`. Một user đăng xuất là đăng xuất tất cả.
+
+```bash
+# 1. admin lấy URL
+curl -X POST localhost:3000/api/admin/codex/auth/login -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{}'
+
+# 2. mở url trả về trong trình duyệt, đăng nhập ChatGPT
+
+# 3. xong — không cần polling, Codex đẩy notification account/login/completed
+curl localhost:3000/api/codex/auth/status -H "Authorization: Bearer $TOKEN"
+```
+
+### Browser hay device code
+
+`POST /login` nhận `{"method": "browser"}` (mặc định) hoặc `{"method": "deviceCode"}`.
+
+Khác biệt không phải chuyện tiện lợi. URL của luồng browser chứa:
+
+```
+redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback
+```
+
+Callback rơi vào **loopback của máy đang chạy Codex**. Trình duyệt của admin phải ở *cùng máy*
+với gateway thì mới hoàn tất được — đúng trong môi trường dev, **sai khi deploy remote**.
+
+Deploy lên server thì dùng `deviceCode`: trả về một URL công khai kèm mã ngắn
+(`VX6J-41MCW`), nhập ở bất kỳ thiết bị nào, không cần chạm tới loopback của server.
+
+### Hai thứ không bao giờ ra khỏi process
+
+**Access token.** `GetAuthStatusResponse` có field `authToken` là token OpenAI thật. Service
+gọi với `includeToken: false` và **dựng response theo từng field**, không bao giờ spread
+nguyên object. Có test khẳng định điều này bằng một token giả có thể nhận diện.
+
+**Login URL.** Ai mở URL đó và đăng nhập sẽ gắn tài khoản ChatGPT *của họ* vào gateway này.
+Đó là leo thang đặc quyền, nên URL chỉ xuất hiện ở endpoint admin — `/api/codex/auth/status`
+của user thường chỉ có `state`, không có URL.
+
+### Trạng thái pending nằm trong bộ nhớ
+
+Login đang chờ được giữ trong RAM và **mất khi restart gateway**. TTL 10 phút là do gateway
+đặt ra, Codex không báo hạn. Restart giữa chừng thì chỉ cần gọi `/login` lại.
+
+---
+
 ## Phase tiếp theo
 
-**Phase 2 — Codex Auth:** `account/login/start` trả `authUrl` cho frontend mở trình duyệt,
-hoàn tất bằng notification `account/login/completed` (push, không polling).
+**Phase 3 — MongoDB + Thread:** schema, index, ownership guard, `thread/start` và
+`thread/resume` đi qua mapping userId → codexThreadId.
 
-Hai điều đã chốt trước cho phase đó:
-
-- Endpoint login/logout nằm dưới `/api/admin/` sau `AdminGuard`. Codex chỉ có một identity
-  cho cả máy, nên một user logout sẽ logout tất cả.
-- `GetAuthStatusResponse` chứa `authToken` là access token thật. Phải map thủ công,
-  không được trả nguyên object ra frontend.
+Đây là phase dựng ranh giới bảo mật thật: app-server không biết gì về user, threads là global
+theo máy, nên **Mongo là thứ duy nhất phân tách người dùng**. Không bao giờ được proxy
+`thread/list` ra API — nó trả về thread của mọi người.
