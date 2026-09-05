@@ -139,6 +139,21 @@ describe('ConversationStreamService', () => {
       );
     });
 
+    it('does not store the user message a second time', async () => {
+      // Codex echoes it back as a completed item, but MessagesService already
+      // wrote it when the turn was requested.
+      notify('item/completed', {
+        threadId: OWNED_THREAD,
+        turnId: 'turn-1',
+        item: { id: 'item-u', type: 'userMessage', text: 'hello' },
+      });
+      await settle();
+
+      expect(codexEvents.create).not.toHaveBeenCalled();
+      expect(messages.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(received).toHaveLength(1); // still streamed to the client
+    });
+
     it('keeps streaming even when a write fails', async () => {
       codexEvents.create.mockRejectedValue(new Error('mongo is down'));
 

@@ -119,6 +119,11 @@ export class ConversationStreamService implements OnModuleInit {
     const item = params.item;
     if (!item?.type || !params.turnId) return;
 
+    // Codex echoes the user's own message back as a completed item. It is
+    // already in `messages`, written when the turn was requested, so recording
+    // it again would store every prompt twice.
+    if (item.type === 'userMessage') return;
+
     if (item.type === 'agentMessage') {
       // Fill in the placeholder created when the turn started. A turn can emit
       // several messages, so only one still-pending row is claimed at a time.
