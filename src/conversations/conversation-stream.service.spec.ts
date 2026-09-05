@@ -110,6 +110,48 @@ describe('ConversationStreamService', () => {
       expect(received).toHaveLength(3);
     });
 
+    it('keeps text streamed before an interrupt', async () => {
+      for (const chunk of ['Đang ', 'viết ', 'dở']) {
+        notify('item/agentMessage/delta', { threadId: OWNED_THREAD, turnId: 'turn-9', delta: chunk });
+      }
+      notify('turn/completed', {
+        threadId: OWNED_THREAD,
+        turn: { id: 'turn-9', status: 'interrupted' },
+      });
+      await settle();
+
+      // The reader watched this text appear; an empty bubble on reload would
+      // be a surprise, and item/completed never arrives for a cut turn.
+      expect(messages.findOneAndUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ codexTurnId: 'turn-9', content: '' }),
+        { $set: { content: 'Đang viết dở' } },
+        { sort: { createdAt: 1 } },
+      );
+    });
+
+    it('discards the buffer once the item completes normally', async () => {
+      notify('item/agentMessage/delta', { threadId: OWNED_THREAD, turnId: 'turn-10', delta: 'partial' });
+      notify('item/completed', {
+        threadId: OWNED_THREAD,
+        turnId: 'turn-10',
+        item: { id: 'i', type: 'agentMessage', text: 'the full reply' },
+      });
+      // Handlers resolve the thread asynchronously, so let them finish before
+      // clearing the recorded calls.
+      await settle();
+      messages.findOneAndUpdate.mockClear();
+
+      notify('turn/completed', {
+        threadId: OWNED_THREAD,
+        turn: { id: 'turn-10', status: 'completed' },
+      });
+      await settle();
+
+      // The completed text already won; re-saving the buffer would overwrite
+      // a finished reply with a fragment of it.
+      expect(messages.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+
     it('fills in the pending assistant message when the reply completes', async () => {
       notify('item/completed', {
         threadId: OWNED_THREAD,

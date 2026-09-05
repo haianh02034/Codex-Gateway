@@ -363,12 +363,24 @@ toàn 15 phút phòng khi notification thất lạc.
 
 | | |
 |---|---|
-| `item/agentMessage/delta` | **không lưu** — chỉ stream |
-| `item/completed` (agentMessage) | điền vào `messages` |
+| `item/agentMessage/delta` | **không ghi DB** — stream, và đệm trong RAM |
+| `item/completed` (agentMessage) | điền vào `messages`, xoá đệm |
+| `item/completed` (userMessage) | bỏ qua — đã lưu lúc gửi |
 | `item/completed` (lệnh, file, tool) | `codex_events`, **TTL 7 ngày** |
-| `turn/completed`, `error` | cập nhật trạng thái |
+| `turn/completed`, `error` | cập nhật trạng thái, flush đệm nếu cần |
 
 Ghi thất bại **không** làm mất stream của người dùng — mất nhật ký còn hơn mất câu trả lời.
+
+### Vì sao có đệm
+
+Turn bị interrupt **không bao giờ phát `item/completed`**. Nếu chỉ dựa vào sự kiện đó,
+người dùng cắt giữa chừng rồi tải lại sẽ thấy một bong bóng trống — dù họ vừa nhìn text
+chạy trên màn hình.
+
+Nên delta được cộng dồn trong RAM theo từng turn (trần 1 MB), và chỉ ghi xuống DB khi turn
+kết thúc bất thường. Turn hoàn tất bình thường thì `item/completed` thắng và đệm bị bỏ.
+
+Đã kiểm chứng trên turn thật: thấy 277 ký tự trước khi cắt, lưu lại đúng 277 ký tự.
 
 ---
 

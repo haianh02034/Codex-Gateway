@@ -6,6 +6,7 @@ import { AuthUser } from '../auth/auth.types';
 import { CodexClientService, CodexRpcError } from '../codex/app-server/codex-client.service';
 import type { TurnStartResponse } from '../codex/protocol/generated/v2/TurnStartResponse';
 import type { UserInput } from '../codex/protocol/generated/v2/UserInput';
+import { ConversationStreamService } from './conversation-stream.service';
 import { ConversationsService } from './conversations.service';
 import { Message, MessageDocument, MessageRole, MessageStatus } from './schemas/message.schema';
 import { ThreadLockService } from './thread-lock.service';
@@ -38,6 +39,7 @@ export class MessagesService {
     private readonly codex: CodexClientService,
     private readonly locks: ThreadLockService,
     private readonly queue: TurnQueueService,
+    private readonly stream: ConversationStreamService,
   ) {}
 
   async list(user: AuthUser, conversationId: string): Promise<MessageView[]> {
@@ -131,11 +133,25 @@ export class MessagesService {
       this.logger.warn(`Conversation ${conversationId} had a stale active turn — clearing it`);
 
       // Settle the messages too. Clearing only the conversation would leave
-      // replies stuck on "pending" with nothing left to complete them.
-      await this.messages.updateMany(
-        { conversationId: new Types.ObjectId(conversationId), codexTurnId: turnId, status: MessageStatus.Pending },
-        { $set: { status: MessageStatus.Interrupted } },
-      );
+      // replies stuck on "pending" with nothing left to complete them. No more
+      // notifications are coming for this turn, so anything already streamed
+      // has to be saved here or it is lost.
+      const partial = this.stream.takePartialText(turnId);
+      const filter = {
+        conversationId: new Types.ObjectId(conversationId),
+        codexTurnId: turnId,
+        status: MessageStatus.Pending,
+      };
+
+      if (partial) {
+        await this.messages.findOneAndUpdate(
+          { ...filter, content: '' },
+          { $set: { content: partial } },
+          { sort: { createdAt: 1 } },
+        );
+      }
+
+      await this.messages.updateMany(filter, { $set: { status: MessageStatus.Interrupted } });
       await this.conversations.markTurnFinished(conversationId, false);
 
       return new ConflictException('That turn had already finished');
