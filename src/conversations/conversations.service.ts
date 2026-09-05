@@ -89,8 +89,9 @@ export class ConversationsService implements OnModuleInit {
   async create(user: AuthUser, title: string): Promise<ConversationView> {
     const response = await this.codex.requestOrUnavailable<ThreadStartResponse>('thread/start', {
       cwd: this.workspaceRoot,
-      // workspace-write keeps writes inside cwd. Phase 6 widens this to a
-      // per-project root once projects exist.
+      // Requested, but not always granted: Codex silently applies read-only
+      // when the platform sandbox is not configured, rather than running
+      // unsandboxed. /health/codex reports which one is actually in force.
       sandbox: 'workspace-write',
       // on-request means Codex asks before anything sensitive. Until Phase 5
       // supplies a human, ServerRequestRegistry declines those asks — which is

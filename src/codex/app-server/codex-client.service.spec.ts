@@ -30,8 +30,14 @@ class FakeTransport implements CodexTransport {
     }
     this.sent.push(message);
 
-    // Answer the handshake so ensureReady() can complete.
     const request = message as WireRequest;
+
+    if (request.method === 'windowsSandbox/readiness' && request.id !== undefined) {
+      queueMicrotask(() => this.emit({ id: request.id, result: { status: 'notConfigured' } }));
+      return;
+    }
+
+    // Answer the handshake so ensureReady() can complete.
     if (request.method === 'initialize' && request.id !== undefined) {
       queueMicrotask(() =>
         this.emit({
@@ -98,7 +104,7 @@ describe('CodexClientService', () => {
       await client.ensureReady();
 
       const methods = transport.sent.map((m) => (m as WireRequest).method);
-      expect(methods).toEqual(['initialize', 'initialized']);
+      expect(methods).toEqual(['initialize', 'initialized', 'windowsSandbox/readiness']);
       expect(client.isConnected()).toBe(true);
     });
 
@@ -110,6 +116,8 @@ describe('CodexClientService', () => {
         transport: 'fake',
         codexHome: '/tmp/codex-home',
         platformOs: 'linux',
+        // Surfaced because Codex downgrades writes silently without it.
+        sandbox: 'notConfigured',
       });
     });
 

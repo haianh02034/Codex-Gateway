@@ -88,6 +88,16 @@ export class EnvironmentVariables {
   MAX_TURNS_PER_USER: number = 2;
 
   /**
+   * How long an approval prompt waits for a person. The app-server blocks for
+   * this long, so it is a ceiling on how long a turn can stall.
+   */
+  @IsInt()
+  @Min(5_000)
+  @Max(1_800_000)
+  @IsOptional()
+  APPROVAL_TIMEOUT_MS: number = 300_000;
+
+  /**
    * Directory every Codex thread runs in. Required, and deliberately so: with
    * no cwd Codex would operate in the gateway's own working directory, which
    * holds this source tree and .env.

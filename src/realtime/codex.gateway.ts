@@ -9,6 +9,8 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
+import { ApprovalDecision } from '../approvals/approval.types';
+import { ApprovalsService } from '../approvals/approvals.service';
 import { AuthService } from '../auth/auth.service';
 import { AuthUser } from '../auth/auth.types';
 import { ConversationStreamService } from '../conversations/conversation-stream.service';
@@ -18,11 +20,23 @@ interface JoinPayload {
   conversationId?: unknown;
 }
 
+interface ResolveApprovalPayload {
+  approvalId?: unknown;
+  decision?: unknown;
+}
+
 interface SocketData {
   user?: AuthUser;
 }
 
 const room = (conversationId: string) => `conversation:${conversationId}`;
+
+function isDecision(value: unknown): value is ApprovalDecision {
+  return (
+    typeof value === 'string' &&
+    (Object.values(ApprovalDecision) as string[]).includes(value)
+  );
+}
 
 /**
  * Live conversation stream.
@@ -44,18 +58,26 @@ export class CodexGateway implements OnGatewayConnection, OnModuleInit {
     private readonly auth: AuthService,
     private readonly conversations: ConversationsService,
     private readonly stream: ConversationStreamService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   onModuleInit(): void {
     // CORS is applied by ConfiguredIoAdapter in main.ts, because gateway
     // decorator options cannot read configuration.
-    this.stream.onConversationEvent((event) => {
+    const forward = (event: { conversationId: string; method: string; params: unknown }) => {
       this.server.to(room(event.conversationId)).emit('codex.event', {
         conversationId: event.conversationId,
         method: event.method,
         params: event.params,
       });
-    });
+    };
+
+    this.stream.onConversationEvent(forward);
+
+    // Approvals ride the same channel. Their method names are prefixed
+    // `gateway/` so a client can tell what came from Codex and what came from
+    // here — every protocol method contains a slash, none starts with that.
+    this.approvals.onApprovalEvent(forward);
   }
 
   /**
@@ -115,6 +137,34 @@ export class CodexGateway implements OnGatewayConnection, OnModuleInit {
     const conversationId = typeof payload?.conversationId === 'string' ? payload.conversationId : '';
     if (conversationId) await client.leave(room(conversationId));
     return { left: true };
+  }
+
+  /**
+   * Answers an approval prompt without a round trip through HTTP, so a client
+   * already holding this socket can reply the moment the user clicks.
+   * Ownership is enforced by the service, exactly as on the REST route.
+   */
+  @SubscribeMessage('approval.resolve')
+  async resolveApproval(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: ResolveApprovalPayload,
+  ): Promise<{ resolved: boolean; error?: string }> {
+    const user = (client.data as SocketData).user;
+    if (!user) return { resolved: false, error: 'Not authenticated' };
+
+    const approvalId = typeof payload?.approvalId === 'string' ? payload.approvalId : '';
+    const decision = payload?.decision;
+
+    if (!approvalId || !isDecision(decision)) {
+      return { resolved: false, error: 'approvalId and a valid decision are required' };
+    }
+
+    try {
+      await this.approvals.resolve(user, approvalId, decision);
+      return { resolved: true };
+    } catch (error) {
+      return { resolved: false, error: (error as Error).message };
+    }
   }
 
   private tokenFrom(client: Socket): string | null {

@@ -21,6 +21,7 @@ export interface DatabaseConfig {
 export interface RuntimeConfig {
   maxConcurrentTurns: number;
   maxTurnsPerUser: number;
+  approvalTimeoutMs: number;
 }
 
 export interface CodexConfig {
@@ -69,6 +70,7 @@ export function configuration(): GatewayConfig {
     runtime: {
       maxConcurrentTurns: Number(env.MAX_CONCURRENT_TURNS ?? 4),
       maxTurnsPerUser: Number(env.MAX_TURNS_PER_USER ?? 2),
+      approvalTimeoutMs: Number(env.APPROVAL_TIMEOUT_MS ?? 300_000),
     },
     codex: {
       binaryOverride: env.CODEX_BIN || '',

@@ -6,7 +6,7 @@ Frontend không bao giờ nói chuyện trực tiếp với Codex. Mọi thứ �
 xác thực người dùng, phân tách dữ liệu giữa các user, và bọc kín giao thức JSON-RPC
 của Codex.
 
-> **Trạng thái: Phase 4 — Chat + WebSocket.**
+> **Trạng thái: Phase 5 — Approval.**
 > Kiến trúc đầy đủ và thứ tự 8 phase nằm ở [`docs/codex-gateway-blueprint.md`](docs/codex-gateway-blueprint.md).
 
 ---
@@ -87,6 +87,8 @@ tất cả — nên từ Phase 2, các endpoint login/logout của Codex nằm s
 | `GET` | `/api/conversations/:id/messages` | cần đăng nhập — lịch sử |
 | `POST` | `/api/conversations/:id/messages` | cần đăng nhập — gửi tin, trả `202` |
 | `POST` | `/api/conversations/:id/interrupt` | cần đăng nhập — dừng turn |
+| `GET` | `/api/conversations/:id/approvals` | cần đăng nhập — lịch sử xin phép |
+| `POST` | `/api/approvals/:id/resolve` | cần đăng nhập — duyệt/từ chối |
 | `GET` | `/api/admin/users` | **admin** |
 | `POST` | `/api/admin/users` | **admin** — tạo tài khoản |
 | `PATCH` | `/api/admin/users/:id/active` | **admin** — bật/tắt tài khoản |
@@ -384,8 +386,81 @@ kết thúc bất thường. Turn hoàn tất bình thường thì `item/complet
 
 ---
 
+## Approval
+
+Codex hỏi xin phép bằng **request từ server**, và app-server **đứng chờ** câu trả lời.
+Nguyên tắc bất di bất dịch: **không bao giờ im lặng**.
+
+```
+Codex ──request──> ServerRequestRegistry ──> ApprovalsService
+                                                   │ lưu row, phát WS
+                                                   ▼
+                                          đúng socket của CHỦ SỞ HỮU
+                                                   │
+                                            người bấm nút
+                                                   │
+Codex <──accept / decline────────────────────────┘
+```
+
+Trả lời qua REST (`POST /api/approvals/:id/resolve`) hoặc thẳng trên socket đang mở
+(`approval.resolve`). Ba lựa chọn: `allow`, `allowForSession`, `deny`.
+
+Sự kiện đi cùng kênh `codex.event` nhưng tên method có tiền tố `gateway/` —
+`gateway/approval.requested` và `gateway/approval.resolved` — để client phân biệt cái gì
+đến từ Codex, cái gì từ gateway.
+
+| Điều | Cách xử lý |
+|---|---|
+| Không ai trả lời trong `APPROVAL_TIMEOUT_MS` (mặc định 5 phút) | tự `decline`, đánh dấu `timedOut` |
+| Thread không thuộc gateway này | `decline` ngay, không tạo row |
+| Người khác thử duyệt hộ | **404** — như conversation |
+| Duyệt lần thứ hai | 404 |
+| Gateway restart giữa chừng | row thành `abandoned`, Codex đã hết chờ |
+
+`item/permissions/requestApproval` **cố ý không nhận**: response type của nó đòi một
+`GrantedPermissionProfile` đầy đủ và **không có cách nào biểu đạt sự từ chối**, nên một
+hộp thoại có/không không trả lời được. Nó tiếp tục rơi vào error reply của registry.
+
+Row `approvals` được giữ lại sau khi quyết định — đó là bằng chứng agent đã được cho phép
+làm gì, trên workspace của ai, do ai duyệt.
+
+---
+
+## Sandbox trên Windows chưa được cấu hình
+
+Phát hiện khi chạy thật, và **ảnh hưởng trực tiếp tới Phase 6**:
+
+```
+windowsSandbox/readiness -> {"status":"notConfigured"}
+```
+
+Gateway gửi `sandbox: "workspace-write"` lúc `thread/start`, nhưng máy chủ áp dụng
+`{"type":"readOnly"}`. Đo trực tiếp:
+
+| Gửi lên | Máy chủ áp dụng |
+|---|---|
+| `workspace-write` | `readOnly` ← **bị hạ ngầm** |
+| `read-only` | `readOnly` |
+| `danger-full-access` | `dangerFullAccess` |
+| `workspaceWrite` | lỗi — sai tên biến thể |
+
+Codex **từ chối cấp quyền ghi khi chưa có sandbox** thay vì chạy không sandbox. Đó là hành
+vi đúng, nhưng nó im lặng: agent không sửa được file mà không báo gì tại chỗ.
+
+Nên gateway hỏi `windowsSandbox/readiness` mỗi lần kết nối, cảnh báo lúc boot, và đưa vào
+`/health/codex`:
+
+```json
+"appServer": { "sandbox": "notConfigured", ... }
+```
+
+Muốn Codex ghi được file thì chạy `codex-windows-sandbox-setup.exe` trong
+`node_modules/@openai/codex-win32-x64/vendor/.../codex-resources/`.
+
+---
+
 ## Phase tiếp theo
 
-**Phase 5 — Approval:** chỉ còn UI và định tuyến; protocol đã xong từ Phase 1.
-`ServerRequestRegistry.register(method, responder)` là chỗ thay chỗ từ chối mặc định bằng
-người thật. Approval phải phát **đúng socket của chủ sở hữu**, kèm timeout.
+**Phase 6 — Workspace:** project với `cwd` riêng, allowlist root, và containment check
+(chặn `..`, symlink, UNC path). Hai lớp phòng thủ — NestJS validate *và* Codex enforce —
+nhưng lớp thứ hai chỉ thực sự có hiệu lực sau khi sandbox Windows được cấu hình.

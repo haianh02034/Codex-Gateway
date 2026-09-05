@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 
+import { ApprovalsModule } from './approvals/approvals.module';
 import { AuthModule } from './auth/auth.module';
 import { CodexModule } from './codex/codex.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -18,6 +19,7 @@ import { RealtimeModule } from './realtime/realtime.module';
     AuthModule,
     CodexModule,
     ConversationsModule,
+    ApprovalsModule,
     RealtimeModule,
     HealthModule,
   ],

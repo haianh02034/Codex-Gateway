@@ -41,6 +41,12 @@ import { TurnQueueService } from './turn-queue.service';
       },
     },
   ],
-  exports: [ConversationsService, MessagesService, ConversationStreamService, ThreadLockService],
+  exports: [
+    ConversationsService,
+    MessagesService,
+    ConversationStreamService,
+    ThreadLockService,
+    ThreadRegistryService,
+  ],
 })
 export class ConversationsModule {}

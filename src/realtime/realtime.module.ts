@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { ApprovalsModule } from '../approvals/approvals.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { CodexGateway } from './codex.gateway';
 
@@ -11,7 +12,7 @@ import { CodexGateway } from './codex.gateway';
  * is available for handshake authentication without importing it.
  */
 @Module({
-  imports: [ConversationsModule],
+  imports: [ConversationsModule, ApprovalsModule],
   providers: [CodexGateway],
 })
 export class RealtimeModule {}

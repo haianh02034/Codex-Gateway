@@ -44,6 +44,12 @@ const CLIENT_INFO = {
 export interface CodexClientStatus {
   connected: boolean;
   transport: string;
+  /**
+   * Whether the platform sandbox is usable. When it is not, Codex quietly
+   * downgrades a workspace-write request to read-only, so an agent that cannot
+   * edit files looks identical to one that can until you try.
+   */
+  sandbox: string | null;
   /** Reported by the server, not guessed from our own environment. */
   codexHome: string | null;
   userAgent: string | null;
@@ -92,6 +98,7 @@ export class CodexClientService implements OnModuleInit, OnModuleDestroy {
   private shuttingDown = false;
   private initializeResponse: InitializeResponse | null = null;
   private lastError: string | null = null;
+  private sandboxStatus: string | null = null;
 
   constructor(
     @Inject(CODEX_TRANSPORT) private readonly transport: CodexTransport,
@@ -129,6 +136,7 @@ export class CodexClientService implements OnModuleInit, OnModuleDestroy {
     return {
       connected: this.connected,
       transport: this.transport.name,
+      sandbox: this.sandboxStatus,
       codexHome: this.initializeResponse?.codexHome ?? null,
       userAgent: this.initializeResponse?.userAgent ?? null,
       platformOs: this.initializeResponse?.platformOs ?? null,
@@ -227,6 +235,33 @@ export class CodexClientService implements OnModuleInit, OnModuleDestroy {
     // Logged every boot on purpose: CODEX_HOME is inherited from the ambient
     // environment, and it decides where credentials and thread history land.
     this.logger.log(`Codex home: ${response.codexHome}`);
+
+    await this.readSandboxStatus();
+  }
+
+  /**
+   * Asks once per connection whether the platform sandbox is set up. A "not
+   * configured" answer is worth saying out loud: everything still runs, but
+   * Codex will refuse to write files and never says so at the point of use.
+   */
+  private async readSandboxStatus(): Promise<void> {
+    try {
+      const result = await this.dispatch<{ status?: string }>(
+        'windowsSandbox/readiness',
+        {},
+        10_000,
+      );
+      this.sandboxStatus = result?.status ?? null;
+
+      if (this.sandboxStatus && this.sandboxStatus !== 'ready') {
+        this.logger.warn(
+          `Platform sandbox is "${this.sandboxStatus}" — Codex will fall back to read-only and cannot edit files`,
+        );
+      }
+    } catch {
+      // Not a Windows host, or the method is unavailable. Not a failure.
+      this.sandboxStatus = null;
+    }
   }
 
   private dispatch<TResult>(method: string, params: unknown, timeoutMs: number): Promise<TResult> {
