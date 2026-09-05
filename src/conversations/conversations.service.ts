@@ -20,6 +20,7 @@ import type { ThreadStartResponse } from '../codex/protocol/generated/v2/ThreadS
 import { CodexConfig } from '../config/configuration';
 import { Conversation, ConversationDocument, ConversationStatus } from './schemas/conversation.schema';
 import { ThreadLockService } from './thread-lock.service';
+import { ThreadRegistryService } from './thread-registry.service';
 
 /** A conversation as the API returns it. Never exposes another user's row. */
 export interface ConversationView {
@@ -64,6 +65,7 @@ export class ConversationsService implements OnModuleInit {
     private readonly conversations: Model<ConversationDocument>,
     private readonly codex: CodexClientService,
     private readonly locks: ThreadLockService,
+    private readonly registry: ThreadRegistryService,
     config: ConfigService,
   ) {
     this.workspaceRoot = path.resolve(config.getOrThrow<CodexConfig>('codex').workspaceRoot);
@@ -104,6 +106,13 @@ export class ConversationsService implements OnModuleInit {
       workspacePath: response.cwd,
       codexModel: response.model,
       activeTurnId: null,
+    });
+
+    // Notifications arrive keyed only by threadId, so the mapping has to exist
+    // before the first one can be routed.
+    this.registry.remember(response.thread.id, {
+      conversationId: created._id.toString(),
+      userId: user.id,
     });
 
     this.logger.log(`Conversation ${created._id.toString()} -> thread ${response.thread.id}`);
@@ -173,10 +182,35 @@ export class ConversationsService implements OnModuleInit {
         );
       }
       await conversation.deleteOne();
+      this.registry.forget(threadId);
     });
 
     this.logger.log(`Deleted conversation ${id} (thread ${threadId})`);
     return { deleted: true };
+  }
+
+  /** Records that a turn is running, so it can be interrupted and streamed. */
+  async markTurnStarted(conversationId: Types.ObjectId, turnId: string): Promise<void> {
+    await this.conversations.updateOne(
+      { _id: conversationId },
+      { $set: { activeTurnId: turnId, status: ConversationStatus.Running } },
+    );
+  }
+
+  /**
+   * Clears the running turn. Called from the notification stream rather than
+   * from the request that started it, because a turn ends asynchronously.
+   */
+  async markTurnFinished(conversationId: string, failed: boolean): Promise<void> {
+    await this.conversations.updateOne(
+      { _id: new Types.ObjectId(conversationId) },
+      {
+        $set: {
+          activeTurnId: null,
+          status: failed ? ConversationStatus.Failed : ConversationStatus.Idle,
+        },
+      },
+    );
   }
 
   /**
@@ -205,10 +239,10 @@ export class ConversationsService implements OnModuleInit {
   }
 
   /**
-   * The single gate. Every path that touches a Codex thread goes through here,
-   * so ownership cannot be forgotten in one branch.
+   * The single gate. Every path that touches a Codex thread goes through here —
+   * including MessagesService — so ownership cannot be forgotten in one branch.
    */
-  private async requireOwned(user: AuthUser, id: string): Promise<ConversationDocument> {
+  async requireOwned(user: AuthUser, id: string): Promise<ConversationDocument> {
     if (!Types.ObjectId.isValid(id)) {
       throw new NotFoundException('No such conversation');
     }

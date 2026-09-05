@@ -7,6 +7,7 @@ import { CodexClientService } from '../codex/app-server/codex-client.service';
 import { ConversationsService } from './conversations.service';
 import { ConversationDocument, ConversationStatus } from './schemas/conversation.schema';
 import { ThreadLockService } from './thread-lock.service';
+import { ThreadRegistryService } from './thread-registry.service';
 
 const ALICE: AuthUser = {
   id: '5f2b1c9d8e7a4b3c2d1e0f01',
@@ -79,10 +80,16 @@ describe('ConversationsService', () => {
       getOrThrow: () => ({ workspaceRoot: process.cwd(), binaryOverride: '', home: '' }),
     } as unknown as ConfigService;
 
+    const registry = {
+      remember: jest.fn(),
+      forget: jest.fn(),
+    } as unknown as ThreadRegistryService;
+
     service = new ConversationsService(
       model as unknown as Model<ConversationDocument>,
       codex as unknown as CodexClientService,
       new ThreadLockService(),
+      registry,
       config,
     );
     jest.spyOn(service['logger'], 'log').mockImplementation(() => undefined);

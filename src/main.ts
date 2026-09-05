@@ -5,6 +5,7 @@ import helmet from 'helmet';
 
 import { AppModule } from './app.module';
 import { AppConfig } from './config/configuration';
+import { ConfiguredIoAdapter } from './realtime/socket-io.adapter';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -14,6 +15,9 @@ async function bootstrap(): Promise<void> {
     app.get(ConfigService).getOrThrow<AppConfig>('app');
 
   app.use(helmet());
+
+  // Socket.IO enforces its own CORS list, so it gets the same origins.
+  app.useWebSocketAdapter(new ConfiguredIoAdapter(app));
 
   // No origins configured means no browser may call the API. Being locked out
   // is recoverable; a wildcard on a gateway holding shared credentials is not.

@@ -6,7 +6,7 @@ Frontend không bao giờ nói chuyện trực tiếp với Codex. Mọi thứ �
 xác thực người dùng, phân tách dữ liệu giữa các user, và bọc kín giao thức JSON-RPC
 của Codex.
 
-> **Trạng thái: Phase 3 — MongoDB + Thread.**
+> **Trạng thái: Phase 4 — Chat + WebSocket.**
 > Kiến trúc đầy đủ và thứ tự 8 phase nằm ở [`docs/codex-gateway-blueprint.md`](docs/codex-gateway-blueprint.md).
 
 ---
@@ -84,6 +84,9 @@ tất cả — nên từ Phase 2, các endpoint login/logout của Codex nằm s
 | `GET` | `/api/conversations/:id` | cần đăng nhập — chỉ của mình |
 | `POST` | `/api/conversations/:id/resume` | cần đăng nhập — nạp lại thread |
 | `DELETE` | `/api/conversations/:id` | cần đăng nhập — xoá cả thread |
+| `GET` | `/api/conversations/:id/messages` | cần đăng nhập — lịch sử |
+| `POST` | `/api/conversations/:id/messages` | cần đăng nhập — gửi tin, trả `202` |
+| `POST` | `/api/conversations/:id/interrupt` | cần đăng nhập — dừng turn |
 | `GET` | `/api/admin/users` | **admin** |
 | `POST` | `/api/admin/users` | **admin** — tạo tài khoản |
 | `PATCH` | `/api/admin/users/:id/active` | **admin** — bật/tắt tài khoản |
@@ -298,14 +301,79 @@ Phase 7 đổi sang Redis nếu điều đó không còn đúng.
 
 ---
 
+## Chat và WebSocket
+
+`POST /messages` trả **202 ngay lập tức** kèm `{messageId, turnId, disposition}`. Không có
+gì chờ model — câu trả lời đến qua WebSocket.
+
+### Kết nối
+
+```js
+const socket = io('http://localhost:3000/codex', { auth: { token: jwt } });
+
+socket.on('codex.connected', ({ userId }) => {
+  socket.emit('conversation.join', { conversationId }, (res) => console.log(res));
+});
+
+socket.on('codex.event', ({ conversationId, method, params }) => {
+  if (method === 'item/agentMessage/delta') append(params.delta);
+});
+```
+
+Token đi trong `auth` của handshake, không phải query string — query string sẽ nằm lại
+trong log của proxy.
+
+Sự kiện gửi xuống là **một kênh duy nhất** `codex.event`, giữ nguyên tên method của
+protocol. Client `switch` theo `method`. Với 706 binding được sinh tự động, dựng một bộ
+tên song song chỉ tạo thêm một lớp dịch phải bảo trì mãi mãi.
+
+### Phòng thủ
+
+- Socket xác thực lúc connect, và **kiểm tra quyền sở hữu lại ở mỗi lần join** — socket
+  sống lâu, conversation có thể đã bị xoá.
+- Sự kiện phát theo *room*, không broadcast: payload chứa lệnh đã chạy và đường dẫn file.
+- Notification của thread không thuộc gateway này (client Codex khác trên cùng máy) bị
+  **bỏ qua**, không phát cho ai.
+
+### Hai message cùng lúc
+
+Một thread chạy một turn tại một thời điểm. `ThreadLockService` khoá quanh đoạn
+đọc-quyết-định-ghi, rồi:
+
+| Tình huống | Hành động |
+|---|---|
+| Không có turn đang chạy | `turn/start` → `disposition: "started"` |
+| Đang có turn | `turn/steer` với `expectedTurnId` → `disposition: "steered"` |
+
+Đã kiểm chứng: gửi hai message đồng thời cho ra **cùng một `turnId`**, không mở hai turn.
+`expectedTurnId` là điều kiện tiên quyết — nếu turn kết thúc giữa lúc đọc và lúc gọi,
+Codex từ chối thay vì steer nhầm turn.
+
+### Hàng đợi công bằng
+
+Mọi user dùng chung một quota Codex. `MAX_CONCURRENT_TURNS` (mặc định 4) giới hạn tổng,
+`MAX_TURNS_PER_USER` (mặc định 2) ngăn một tài khoản chiếm hết. Khi có slot trống, hàng
+đợi **bỏ qua** người đang chạm trần của chính họ để nhường người khác.
+
+Slot giữ suốt turn, không chỉ lúc gọi `turn/start` — vì lệnh đó trả về ngay khi turn bắt
+đầu. Slot được trả lại khi `turn/completed` hoặc khi có lỗi kết thúc turn, kèm timeout an
+toàn 15 phút phòng khi notification thất lạc.
+
+### Lưu gì, không lưu gì
+
+| | |
+|---|---|
+| `item/agentMessage/delta` | **không lưu** — chỉ stream |
+| `item/completed` (agentMessage) | điền vào `messages` |
+| `item/completed` (lệnh, file, tool) | `codex_events`, **TTL 7 ngày** |
+| `turn/completed`, `error` | cập nhật trạng thái |
+
+Ghi thất bại **không** làm mất stream của người dùng — mất nhật ký còn hơn mất câu trả lời.
+
+---
+
 ## Phase tiếp theo
 
-**Phase 4 — Chat + WebSocket:** `turn/start`, stream `item/agentMessage/delta` qua WS,
-`turn/interrupt`, fair queue theo user.
-
-Ba điều đã chốt trước:
-
-- `turn/interrupt` cần `{threadId, turnId}` — `activeTurnId` đã có sẵn trong schema.
-- **Không persist delta.** Delta bắn theo từng token; chỉ stream qua WS và lưu
-  `item/completed`. Raw event nếu giữ thì đặt TTL 7 ngày.
-- Thread đang bận thì dùng `turn/steer` thay vì xếp hàng.
+**Phase 5 — Approval:** chỉ còn UI và định tuyến; protocol đã xong từ Phase 1.
+`ServerRequestRegistry.register(method, responder)` là chỗ thay chỗ từ chối mặc định bằng
+người thật. Approval phải phát **đúng socket của chủ sở hữu**, kèm timeout.

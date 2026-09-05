@@ -24,6 +24,17 @@ import {
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 const INITIALIZE_TIMEOUT_MS = 30_000;
 
+/**
+ * Prefix for internal listener keys.
+ *
+ * Codex sends a notification whose method is literally "error", and Node's
+ * EventEmitter throws when an 'error' event is emitted with no listener — one
+ * upstream error would take the whole gateway down. Namespacing keeps protocol
+ * method names away from EventEmitter's reserved one.
+ */
+const EVENT_PREFIX = 'codex:';
+const ANY_EVENT = 'codex:*';
+
 const CLIENT_INFO = {
   name: 'codex-gateway',
   title: 'Codex Gateway',
@@ -179,17 +190,18 @@ export class CodexClientService implements OnModuleInit, OnModuleDestroy {
 
   /** Subscribes to one server notification, e.g. account/login/completed. */
   on(method: string, listener: (params: unknown) => void): () => void {
-    this.notifications.on(method, listener);
+    const key = EVENT_PREFIX + method;
+    this.notifications.on(key, listener);
     return () => {
-      this.notifications.off(method, listener);
+      this.notifications.off(key, listener);
     };
   }
 
   /** Subscribes to every notification. Phase 4 fans these out over WebSocket. */
   onAny(listener: (notification: WireServerNotification) => void): () => void {
-    this.notifications.on('*', listener);
+    this.notifications.on(ANY_EVENT, listener);
     return () => {
-      this.notifications.off('*', listener);
+      this.notifications.off(ANY_EVENT, listener);
     };
   }
 
@@ -302,8 +314,8 @@ export class CodexClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   private handleNotification(notification: WireServerNotification): void {
-    this.notifications.emit(notification.method, notification.params);
-    this.notifications.emit('*', notification);
+    this.notifications.emit(EVENT_PREFIX + notification.method, notification.params);
+    this.notifications.emit(ANY_EVENT, notification);
   }
 
   private handleExit(code: number | null, signal: NodeJS.Signals | null): void {

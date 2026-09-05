@@ -18,6 +18,11 @@ export interface DatabaseConfig {
   uri: string;
 }
 
+export interface RuntimeConfig {
+  maxConcurrentTurns: number;
+  maxTurnsPerUser: number;
+}
+
 export interface CodexConfig {
   /** Explicit binary path. Empty means "resolve from node_modules". */
   binaryOverride: string;
@@ -31,6 +36,7 @@ export interface GatewayConfig {
   app: AppConfig;
   auth: AuthConfig;
   database: DatabaseConfig;
+  runtime: RuntimeConfig;
   codex: CodexConfig;
 }
 
@@ -59,6 +65,10 @@ export function configuration(): GatewayConfig {
     },
     database: {
       uri: env.MONGODB_URI!,
+    },
+    runtime: {
+      maxConcurrentTurns: Number(env.MAX_CONCURRENT_TURNS ?? 4),
+      maxTurnsPerUser: Number(env.MAX_TURNS_PER_USER ?? 2),
     },
     codex: {
       binaryOverride: env.CODEX_BIN || '',

@@ -71,6 +71,23 @@ export class EnvironmentVariables {
   MONGODB_URI!: string;
 
   /**
+   * Ceiling on turns running at once across the whole gateway. Every user
+   * shares one Codex identity and one quota, so this is a spend control.
+   */
+  @IsInt()
+  @Min(1)
+  @Max(64)
+  @IsOptional()
+  MAX_CONCURRENT_TURNS: number = 4;
+
+  /** Keeps one account from filling the global ceiling on its own. */
+  @IsInt()
+  @Min(1)
+  @Max(64)
+  @IsOptional()
+  MAX_TURNS_PER_USER: number = 2;
+
+  /**
    * Directory every Codex thread runs in. Required, and deliberately so: with
    * no cwd Codex would operate in the gateway's own working directory, which
    * holds this source tree and .env.

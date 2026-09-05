@@ -245,6 +245,30 @@ describe('CodexClientService', () => {
       );
     });
 
+    it('survives an "error" notification with nobody listening', async () => {
+      await client.ensureReady();
+
+      // Codex sends a notification whose method is literally "error", and
+      // EventEmitter throws on an unhandled 'error' event. Without namespacing
+      // the listener keys, one upstream error takes down the whole gateway.
+      expect(() =>
+        transport.emit({
+          method: 'error',
+          params: { threadId: 't', turnId: 'u', error: { message: '401' }, willRetry: true },
+        }),
+      ).not.toThrow();
+    });
+
+    it('delivers an "error" notification to a subscriber like any other', async () => {
+      await client.ensureReady();
+
+      const listener = jest.fn();
+      client.on('error', listener);
+      transport.emit({ method: 'error', params: { message: 'boom' } });
+
+      expect(listener).toHaveBeenCalledWith({ message: 'boom' });
+    });
+
     it('stops delivering after unsubscribe', async () => {
       await client.ensureReady();
 
