@@ -22,6 +22,8 @@ export interface RuntimeConfig {
   maxConcurrentTurns: number;
   maxTurnsPerUser: number;
   approvalTimeoutMs: number;
+  allowMultipleInstances: boolean;
+  loginAttemptsPerMinute: number;
 }
 
 export interface CodexConfig {
@@ -71,6 +73,8 @@ export function configuration(): GatewayConfig {
       maxConcurrentTurns: Number(env.MAX_CONCURRENT_TURNS ?? 4),
       maxTurnsPerUser: Number(env.MAX_TURNS_PER_USER ?? 2),
       approvalTimeoutMs: Number(env.APPROVAL_TIMEOUT_MS ?? 300_000),
+      allowMultipleInstances: env.ALLOW_MULTIPLE_INSTANCES === 'true',
+      loginAttemptsPerMinute: Number(env.LOGIN_ATTEMPTS_PER_MINUTE ?? 10),
     },
     codex: {
       binaryOverride: env.CODEX_BIN || '',

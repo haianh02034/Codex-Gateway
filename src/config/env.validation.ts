@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import {
+  IsBooleanString,
   IsEmail,
   IsEnum,
   IsInt,
@@ -96,6 +97,21 @@ export class EnvironmentVariables {
   @Max(1_800_000)
   @IsOptional()
   APPROVAL_TIMEOUT_MS: number = 300_000;
+
+  /**
+   * Turns off the single-node guard. Only safe when instances do not share a
+   * CODEX_HOME; otherwise they corrupt thread history and race approvals.
+   */
+  @IsBooleanString()
+  @IsOptional()
+  ALLOW_MULTIPLE_INSTANCES: string = 'false';
+
+  /** Login attempts allowed per IP per minute, to blunt password guessing. */
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  @IsOptional()
+  LOGIN_ATTEMPTS_PER_MINUTE: number = 10;
 
   /**
    * Comma-separated directories the gateway may run threads in. Required, and

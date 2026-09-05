@@ -28,6 +28,7 @@
     "@nestjs/mongoose": "^11.0.4",
     "@nestjs/platform-express": "^11.1.6",
     "@nestjs/platform-socket.io": "^11.2.3",
+    "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^11.2.3",
     "@openai/codex": "0.153.4",
     "bcryptjs": "^3.0.2",

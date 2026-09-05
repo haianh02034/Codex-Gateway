@@ -12,6 +12,7 @@ import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
 import { ProjectsModule } from './projects/projects.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { StartupModule } from './startup/startup.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 
 @Module({
@@ -26,6 +27,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
     ApprovalsModule,
     RealtimeModule,
     HealthModule,
+    StartupModule,
   ],
   providers: [
     // Authentication is the default. Routes opt out with @Public().

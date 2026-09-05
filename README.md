@@ -6,7 +6,7 @@ Frontend không bao giờ nói chuyện trực tiếp với Codex. Mọi thứ �
 xác thực người dùng, phân tách dữ liệu giữa các user, và bọc kín giao thức JSON-RPC
 của Codex.
 
-> **Trạng thái: Phase 6 — Workspace.**
+> **Trạng thái: Phase 7 — Production.**
 > Kiến trúc đầy đủ và thứ tự 8 phase nằm ở [`docs/codex-gateway-blueprint.md`](docs/codex-gateway-blueprint.md).
 
 ---
@@ -98,6 +98,8 @@ tất cả — nên từ Phase 2, các endpoint login/logout của Codex nằm s
 | `POST` | `/api/admin/users` | **admin** — tạo tài khoản |
 | `PATCH` | `/api/admin/users/:id/active` | **admin** — bật/tắt tài khoản |
 | `GET` | `/api/codex/auth/status` | cần đăng nhập — Codex đã login chưa |
+| `GET` | `/api/codex/rate-limits` | cần đăng nhập — hạn mức dùng chung |
+| `POST` | `/api/codex/rate-limits/refresh` | cần đăng nhập — đọc lại từ Codex |
 | `GET` | `/api/admin/codex/auth/status` | **admin** — kèm tài khoản và login đang chờ |
 | `POST` | `/api/admin/codex/auth/login` | **admin** — lấy URL đăng nhập |
 | `POST` | `/api/admin/codex/auth/login/cancel` | **admin** |
@@ -524,10 +526,72 @@ Path của project thì **phải có sẵn** — gateway không tạo thư mục
 
 ---
 
-## Phase tiếp theo
+## Vận hành
 
-**Phase 7 — Production:** single-node hoặc sticky routing, broadcast rate limit,
-`--ws-auth` nếu listener không còn loopback.
+### Chỉ được một instance
 
-Ràng buộc đã biết: thread state nằm trên đĩa local và daemon gắn với máy, nên Nginx
-round-robin sang hai instance sẽ làm resume thread fail.
+Gateway giữ một **lease trong MongoDB**. Instance thứ hai bị từ chối khởi động:
+
+```
+ERROR [Bootstrap] Another Codex Gateway is already running on DESKTOP-XXX (pid 3656).
+Two gateways sharing one CODEX_HOME corrupt thread history and race approvals.
+```
+
+Đây là biến "single-node" từ một dòng ghi chú thành một bảo đảm. Hai gateway dùng chung
+`CODEX_HOME` sẽ mỗi bên spawn một app-server trên **cùng lịch sử thread trên đĩa**, tranh
+nhau trả lời approval, và gán cho một conversation hai turn khác nhau.
+
+Lease đặt trong Mongo chứ không phải lockfile, vì sai lầm này dễ xảy ra nhất khi chạy trên
+**hai máy khác nhau** — chỗ mà lockfile không thấy gì.
+
+Sau khi crash, restart **không phải chờ**: nếu lease thuộc cùng host, gateway kiểm tra pid
+đó còn sống không (`kill(pid, 0)`) và tiếp quản ngay. Lease của host khác luôn được coi là
+còn sống — một pid ở máy khác không nói lên điều gì ở đây.
+
+Chạy nhiều instance có chủ đích thì đặt `ALLOW_MULTIPLE_INSTANCES=true`, **chỉ khi** chúng
+không dùng chung `CODEX_HOME`.
+
+### Restart dọn việc dở dang
+
+Turn, câu trả lời và hộp thoại approval đều sống một phần trong RAM. Restart cắt cả ba, và
+sẽ **không có notification nào tới để đóng chúng lại**.
+
+Lúc bootstrap, gateway settle hết: conversation về `idle`, message `pending` thành
+`interrupted`, approval `pending` thành `abandoned`.
+
+```
+WARN [StartupReconcilerService] Settled work interrupted by the last shutdown:
+     0 conversation(s), 1 reply(ies), 0 approval(s)
+```
+
+Không có bước này, user quay lại thấy conversation kẹt "running" vĩnh viễn.
+
+**Đã kiểm chứng**: tạo conversation, gửi message, kill gateway, khởi động lại — lịch sử
+còn nguyên, `POST /resume` trả 200, và Codex vẫn **nhớ ngữ cảnh từ trước restart**.
+
+### Hạn mức dùng chung
+
+Mọi user tiêu chung một quota. `GET /api/codex/rate-limits` trả snapshot, và mỗi thay đổi
+được **broadcast tới toàn bộ socket** qua sự kiện `codex.quota`. Client mới kết nối nhận
+ngay số hiện tại, không phải chờ thay đổi kế tiếp.
+
+Cập nhật từ Codex là **sparse**: field `null` nghĩa là "không đổi", không phải "xoá". Nên
+gateway **merge** chứ không thay thế — thay thế sẽ xoá sạch plan và số dư credit mỗi lần
+một con số usage nhúc nhích. Riêng `limitReached` thì một lần đọc đầy đủ *được phép* xoá,
+vì im lặng ở đó nghĩa là hết bị chặn.
+
+### Chặn dò mật khẩu
+
+`POST /api/auth/login` giới hạn theo IP (`LOGIN_ATTEMPTS_PER_MINUTE`, mặc định 10), sau đó
+trả `429`. Các endpoint khác đã nằm sau token — đoán mò không phải kiểu tấn công ở đó.
+
+### Đằng sau Nginx
+
+Transport hiện tại là **stdio**, nên không có cổng nào để bảo vệ và `--ws-auth` không cần
+tới. Nếu sau này chuyển sang `--listen ws://`:
+
+- Loopback thì Codex không bắt buộc xác thực.
+- **Non-loopback thì bắt buộc** — dùng `--ws-auth capability-token` hoặc `signed-bearer-token`.
+
+Và nhớ: thread state nằm trên đĩa local, nên **không round-robin** sang nhiều instance.
+Lease ở trên sẽ chặn cấu hình đó ngay từ lúc khởi động.

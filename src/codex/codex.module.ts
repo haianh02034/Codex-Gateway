@@ -8,6 +8,8 @@ import { CodexAdminAuthController } from './auth/codex-admin-auth.controller';
 import { CodexAuthController } from './auth/codex-auth.controller';
 import { CodexAuthService } from './auth/codex-auth.service';
 import { CodexBinaryService } from './binary/codex-binary.service';
+import { QuotaController } from './quota/quota.controller';
+import { QuotaService } from './quota/quota.service';
 
 /**
  * Everything that touches Codex lives here.
@@ -18,15 +20,22 @@ import { CodexBinaryService } from './binary/codex-binary.service';
  * Phase 5 registers real approval responders with ServerRequestRegistry.
  */
 @Module({
-  controllers: [CodexAuthController, CodexAdminAuthController],
+  controllers: [CodexAuthController, CodexAdminAuthController, QuotaController],
   providers: [
     CodexAuthService,
     CodexBinaryService,
+    QuotaService,
     ServerRequestRegistry,
     StdioTransport,
     { provide: CODEX_TRANSPORT, useExisting: StdioTransport },
     CodexClientService,
   ],
-  exports: [CodexBinaryService, CodexClientService, ServerRequestRegistry, CodexAuthService],
+  exports: [
+    CodexBinaryService,
+    CodexClientService,
+    ServerRequestRegistry,
+    CodexAuthService,
+    QuotaService,
+  ],
 })
 export class CodexModule {}

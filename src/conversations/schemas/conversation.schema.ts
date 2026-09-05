@@ -30,7 +30,8 @@ export class Conversation {
    * restart. Phase 4 has to cope with a thread that has gone missing by
    * starting a new one and repointing this field.
    */
-  @Prop({ required: true, unique: true })
+  // Uniqueness is declared once, on the explicit index below.
+  @Prop({ required: true })
   codexThreadId!: string;
 
   @Prop({ trim: true, maxlength: 200, default: '' })

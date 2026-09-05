@@ -9,6 +9,11 @@ import { ConfiguredIoAdapter } from './realtime/socket-io.adapter';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // Release the buffer now. Held until listen(), a startup that refuses to
+  // continue — a held instance lease, a bad workspace root — would exit
+  // silently with nothing written anywhere.
+  app.flushLogs();
+
   const logger = new Logger('Bootstrap');
 
   const { port, apiPrefix, corsOrigins, nodeEnv } =
@@ -55,4 +60,9 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-void bootstrap();
+void bootstrap().catch((error: Error) => {
+  // Refusing to start is a valid outcome — a held instance lease, an
+  // unusable workspace root. Say why in one line instead of a stack trace.
+  new Logger('Bootstrap').error(error.message);
+  process.exit(1);
+});

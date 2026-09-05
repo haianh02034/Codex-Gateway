@@ -13,7 +13,8 @@ export type UserDocument = HydratedDocument<User>;
  */
 @Schema({ timestamps: true, collection: 'users' })
 export class User {
-  @Prop({ required: true, unique: true, lowercase: true, trim: true })
+  // Uniqueness is declared once, on the explicit index below.
+  @Prop({ required: true, lowercase: true, trim: true })
   email!: string;
 
   /** bcrypt. The plaintext password is never stored or logged. */

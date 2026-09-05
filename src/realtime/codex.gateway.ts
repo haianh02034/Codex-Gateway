@@ -12,6 +12,7 @@ import { Server, Socket } from 'socket.io';
 import { ApprovalDecision } from '../approvals/approval.types';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { AuthService } from '../auth/auth.service';
+import { QuotaService } from '../codex/quota/quota.service';
 import { AuthUser } from '../auth/auth.types';
 import { ConversationStreamService } from '../conversations/conversation-stream.service';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -59,6 +60,7 @@ export class CodexGateway implements OnGatewayConnection, OnModuleInit {
     private readonly conversations: ConversationsService,
     private readonly stream: ConversationStreamService,
     private readonly approvals: ApprovalsService,
+    private readonly quota: QuotaService,
   ) {}
 
   onModuleInit(): void {
@@ -78,6 +80,12 @@ export class CodexGateway implements OnGatewayConnection, OnModuleInit {
     // `gateway/` so a client can tell what came from Codex and what came from
     // here — every protocol method contains a slash, none starts with that.
     this.approvals.onApprovalEvent(forward);
+
+    // The shared allowance belongs to no single conversation, so it goes to
+    // the whole namespace rather than a room.
+    this.quota.onQuotaChanged((view) => {
+      this.server.emit('codex.quota', view);
+    });
   }
 
   /**
@@ -97,6 +105,9 @@ export class CodexGateway implements OnGatewayConnection, OnModuleInit {
       const user = await this.auth.verify(token);
       (client.data as SocketData).user = user;
       client.emit('codex.connected', { userId: user.id });
+      // Send the current figures straight away so a fresh client is not blank
+      // until the next change arrives.
+      client.emit('codex.quota', this.quota.getSnapshot());
     } catch {
       client.emit('codex.error', { message: 'Session expired — sign in again' });
       client.disconnect(true);

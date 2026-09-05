@@ -2,8 +2,9 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule, JwtSignOptions } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ThrottlerModule } from '@nestjs/throttler';
 
-import { AuthConfig } from '../config/configuration';
+import { AuthConfig, RuntimeConfig } from '../config/configuration';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { User, UserSchema } from './schemas/user.schema';
@@ -22,6 +23,18 @@ import { UsersService } from './users/users.service';
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+    // Only the login route is throttled. Everything else is already behind a
+    // token, where guessing is not the attack.
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => [
+        {
+          name: 'login',
+          ttl: 60_000,
+          limit: config.getOrThrow<RuntimeConfig>('runtime').loginAttemptsPerMinute,
+        },
+      ],
+    }),
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
