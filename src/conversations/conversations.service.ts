@@ -185,6 +185,58 @@ export class ConversationsService {
     return { deleted: true };
   }
 
+  /**
+   * Makes a stored thread usable again, and reports the id to use.
+   *
+   * `turn/start` only works on a thread the app-server currently holds in
+   * memory. Threads live on disk across restarts but are not loaded until asked
+   * for, so the first message to any existing conversation after a restart
+   * fails with "thread not found" unless it is resumed first.
+   *
+   * A thread that never ran a turn was never written to disk at all, so there
+   * is nothing to resume. In that case a fresh thread is started and the
+   * conversation is repointed at it — the alternative is a conversation that
+   * can never be used again.
+   */
+  async reviveThread(user: AuthUser, conversation: ConversationDocument): Promise<string> {
+    const threadId = conversation.codexThreadId;
+
+    try {
+      await this.codex.requestOrUnavailable<ThreadResumeResponse>('thread/resume', {
+        threadId,
+        excludeTurns: true,
+      });
+      this.logger.log(`Reloaded thread ${threadId}`);
+      return threadId;
+    } catch (error) {
+      this.logger.warn(
+        `Could not reload thread ${threadId} (${(error as Error).message}) — starting a new one`,
+      );
+    }
+
+    const cwd = await this.projects.workspaceFor(user, conversation.projectId?.toString() ?? null);
+    const response = await this.codex.requestOrUnavailable<ThreadStartResponse>('thread/start', {
+      cwd,
+      sandbox: 'workspace-write',
+      approvalPolicy: 'on-request',
+    });
+
+    const replacement = response.thread.id;
+
+    this.registry.forget(threadId);
+    conversation.codexThreadId = replacement;
+    conversation.workspacePath = response.cwd;
+    conversation.codexModel = response.model;
+    await conversation.save();
+    this.registry.remember(replacement, {
+      conversationId: conversation._id.toString(),
+      userId: user.id,
+    });
+
+    this.logger.warn(`Conversation ${conversation._id.toString()} repointed to thread ${replacement}`);
+    return replacement;
+  }
+
   /** Records that a turn is running, so it can be interrupted and streamed. */
   async markTurnStarted(conversationId: Types.ObjectId, turnId: string): Promise<void> {
     await this.conversations.updateOne(

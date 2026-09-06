@@ -8,6 +8,7 @@ import type { TurnStartResponse } from '../codex/protocol/generated/v2/TurnStart
 import type { UserInput } from '../codex/protocol/generated/v2/UserInput';
 import { ConversationStreamService } from './conversation-stream.service';
 import { ConversationsService } from './conversations.service';
+import { ConversationDocument } from './schemas/conversation.schema';
 import { Message, MessageDocument, MessageRole, MessageStatus } from './schemas/message.schema';
 import { ThreadLockService } from './thread-lock.service';
 import { TurnQueueService } from './turn-queue.service';
@@ -83,7 +84,7 @@ export class MessagesService {
         return this.steer(user, fresh._id, threadId, fresh.activeTurnId, input);
       }
 
-      return this.start(user, fresh, threadId, input);
+      return this.start(user, fresh, input);
     });
   }
 
@@ -163,8 +164,7 @@ export class MessagesService {
 
   private async start(
     user: AuthUser,
-    conversation: { _id: Types.ObjectId; codexThreadId: string },
-    threadId: string,
+    conversation: ConversationDocument,
     input: UserInput[],
   ): Promise<SendMessageResult> {
     // Held for the whole turn, released when turn/completed arrives. Waiting
@@ -172,14 +172,31 @@ export class MessagesService {
     const ticket = await this.queue.acquire(user.id);
 
     let response: TurnStartResponse;
+    let threadId = conversation.codexThreadId;
+
     try {
       response = await this.codex.requestOrUnavailable<TurnStartResponse>('turn/start', {
         threadId,
         input,
       });
     } catch (error) {
-      ticket.release();
-      throw error;
+      if (!isThreadNotLoaded(error)) {
+        ticket.release();
+        throw error;
+      }
+
+      // The app-server does not have this thread open — normal after a
+      // restart, since threads are read from disk only when asked for.
+      try {
+        threadId = await this.conversations.reviveThread(user, conversation);
+        response = await this.codex.requestOrUnavailable<TurnStartResponse>('turn/start', {
+          threadId,
+          input,
+        });
+      } catch (retryError) {
+        ticket.release();
+        throw retryError;
+      }
     }
 
     const turnId = response.turn.id;
@@ -241,3 +258,10 @@ export class MessagesService {
   }
 }
 
+/**
+ * True when Codex is saying it does not currently hold this thread — which is
+ * recoverable by resuming, unlike any other protocol failure.
+ */
+function isThreadNotLoaded(error: unknown): boolean {
+  return error instanceof CodexRpcError && error.message.includes('thread not found');
+}

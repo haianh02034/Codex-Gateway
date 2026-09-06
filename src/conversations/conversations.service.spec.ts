@@ -163,6 +163,43 @@ describe('ConversationsService', () => {
     });
   });
 
+  describe('reviving a thread the app-server has forgotten', () => {
+    it('resumes it and keeps the same thread id', async () => {
+      codex.requestOrUnavailable.mockResolvedValue({
+        thread: { status: { type: 'idle' }, turns: [] },
+        model: 'gpt-5-codex',
+        cwd: '/workspaces',
+      });
+
+      // turn/start only works on a thread the app-server currently holds, and
+      // threads are read from disk only when asked for.
+      const id = await service.reviveThread(ALICE, model.aliceRow as never);
+
+      expect(id).toBe('thread-alice');
+      expect(codex.requestOrUnavailable).toHaveBeenCalledWith('thread/resume', {
+        threadId: 'thread-alice',
+        excludeTurns: true,
+      });
+    });
+
+    it('starts a fresh thread and repoints the conversation when there is nothing to resume', async () => {
+      // A thread that never ran a turn was never written to disk, so resuming
+      // it cannot work. Leaving it would strand the conversation forever.
+      codex.requestOrUnavailable
+        .mockRejectedValueOnce(new Error('no rollout found'))
+        .mockResolvedValueOnce({
+          thread: { id: 'thread-new' },
+          model: 'gpt-5-codex',
+          cwd: '/workspaces',
+        });
+
+      const id = await service.reviveThread(ALICE, model.aliceRow as never);
+
+      expect(id).toBe('thread-new');
+      expect(model.aliceRow.codexThreadId).toBe('thread-new');
+    });
+  });
+
   describe('delete', () => {
     it('removes the row even when Codex has already lost the thread', async () => {
       codex.requestOrUnavailable.mockRejectedValue(new Error('unknown thread'));
