@@ -9,20 +9,28 @@ import { ThreadRegistryService } from './thread-registry.service';
 import { TurnQueueService } from './turn-queue.service';
 
 const CONVERSATION_ID = '6a1b2c3d4e5f60718293a4b5';
+// A real ObjectId: the service converts it, so a placeholder string would throw.
+const USER_ID = '5f2b1c9d8e7a4b3c2d1e0f01';
 const OWNED_THREAD = 'thread-owned';
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 describe('ConversationStreamService', () => {
   let notify: (method: string, params: unknown) => void;
-  let messages: { findOneAndUpdate: jest.Mock; updateMany: jest.Mock };
+  let messages: { findOneAndUpdate: jest.Mock; updateMany: jest.Mock; create: jest.Mock };
   let codexEvents: { create: jest.Mock };
   let queue: { release: jest.Mock };
   let conversations: { markTurnFinished: jest.Mock };
   let received: ConversationEvent[];
 
   beforeEach(() => {
-    messages = { findOneAndUpdate: jest.fn().mockResolvedValue(null), updateMany: jest.fn().mockResolvedValue(null) };
+    messages = {
+      // Resolves to a document by default: the placeholder row created when the
+      // turn started is there to be claimed.
+      findOneAndUpdate: jest.fn().mockResolvedValue({ _id: 'claimed' }),
+      updateMany: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({}),
+    };
     codexEvents = { create: jest.fn().mockResolvedValue({}) };
     queue = { release: jest.fn() };
     conversations = { markTurnFinished: jest.fn().mockResolvedValue(undefined) };
@@ -39,7 +47,7 @@ describe('ConversationStreamService', () => {
       resolve: (threadId: string) =>
         Promise.resolve(
           threadId === OWNED_THREAD
-            ? { conversationId: CONVERSATION_ID, userId: 'user-1' }
+            ? { conversationId: CONVERSATION_ID, userId: USER_ID }
             : null,
         ),
     };
@@ -68,7 +76,7 @@ describe('ConversationStreamService', () => {
       expect(received).toHaveLength(1);
       expect(received[0]).toMatchObject({
         conversationId: CONVERSATION_ID,
-        userId: 'user-1',
+        userId: USER_ID,
         method: 'item/agentMessage/delta',
       });
     });
@@ -164,6 +172,36 @@ describe('ConversationStreamService', () => {
         expect.objectContaining({ codexTurnId: 'turn-1', status: MessageStatus.Pending }),
         { $set: { content: 'Hello world', status: MessageStatus.Completed, codexItemId: 'item-1' } },
         { sort: { createdAt: 1 } },
+      );
+    });
+
+    it('keeps a second reply in the same turn instead of dropping it', async () => {
+      // A turn that runs tools says what it is about to do, works, then answers.
+      // Only one placeholder row exists, so the first message claims it.
+      notify('item/completed', {
+        threadId: OWNED_THREAD,
+        turnId: 'turn-multi',
+        item: { id: 'msg-1', type: 'agentMessage', text: 'Mình sẽ tra tài liệu.' },
+      });
+      await settle();
+
+      // Nothing pending is left for the second one.
+      messages.findOneAndUpdate.mockResolvedValue(null);
+      notify('item/completed', {
+        threadId: OWNED_THREAD,
+        turnId: 'turn-multi',
+        item: { id: 'msg-2', type: 'agentMessage', text: 'Hạn mức tính theo phiên.' },
+      });
+      await settle();
+
+      // Updating alone would leave only the preamble and lose the answer.
+      expect(messages.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: 'Hạn mức tính theo phiên.',
+          codexTurnId: 'turn-multi',
+          codexItemId: 'msg-2',
+          status: MessageStatus.Completed,
+        }),
       );
     });
 

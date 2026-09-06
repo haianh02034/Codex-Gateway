@@ -108,11 +108,14 @@ export function Workspace({ user, onSignOut }: { user: AuthUser; onSignOut: () =
           return;
 
         case 'item/completed': {
-          const item = params.item as { type?: string } | undefined;
+          const item = params.item as { id?: string; type?: string; text?: string } | undefined;
           if (item?.type === 'agentMessage') {
-            // The completed text supersedes the deltas; reloading below gives
-            // the stored version, so just stop the live caret.
+            // A turn can produce several replies: one saying what it is about
+            // to do, then the answer. Show each as it settles instead of
+            // waiting for the turn to end, or the transcript goes blank in the
+            // middle of a long task.
             setStreaming('');
+            setMessages((current) => [...current, settledAssistantMessage(item)]);
             return;
           }
           setActivity((current) => upsertActivity(current, params, 'done'));
@@ -377,6 +380,21 @@ function detailFor(type: string, item: Record<string, unknown>): string {
 function titleFrom(text: string): string {
   const [line] = text.trim().split(/\r?\n/);
   return line.length > 60 ? `${line.slice(0, 57)}…` : line;
+}
+
+/**
+ * A reply that has just finished streaming. Replaced by the stored copy when
+ * the turn ends and the history is reloaded.
+ */
+function settledAssistantMessage(item: { id?: string; text?: string }): Message {
+  return {
+    id: item.id ?? `live-${Date.now()}`,
+    role: 'assistant',
+    content: item.text ?? '',
+    status: 'completed',
+    turnId: null,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 function optimisticUserMessage(text: string): Message {

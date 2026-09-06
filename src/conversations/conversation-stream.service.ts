@@ -7,8 +7,8 @@ import { Model, Types } from 'mongoose';
 import { CodexClientService } from '../codex/app-server/codex-client.service';
 import { ConversationsService } from './conversations.service';
 import { CodexEvent, CodexEventDocument } from './schemas/codex-event.schema';
-import { Message, MessageDocument, MessageStatus } from './schemas/message.schema';
-import { ThreadRegistryService } from './thread-registry.service';
+import { Message, MessageDocument, MessageRole, MessageStatus } from './schemas/message.schema';
+import { ThreadOwner, ThreadRegistryService } from './thread-registry.service';
 import { TurnQueueService } from './turn-queue.service';
 
 /**
@@ -111,7 +111,7 @@ export class ConversationStreamService implements OnModuleInit {
     if (!owner) return; // A thread belonging to some other client on this host.
 
     try {
-      await this.record(method, params, owner.conversationId);
+      await this.record(method, params, owner);
     } catch (error) {
       // Persistence must never cost the client its live stream.
       this.logger.error(`Could not record ${method}: ${(error as Error).message}`);
@@ -125,17 +125,17 @@ export class ConversationStreamService implements OnModuleInit {
     } satisfies ConversationEvent);
   }
 
-  private async record(method: string, params: unknown, conversationId: string): Promise<void> {
+  private async record(method: string, params: unknown, owner: ThreadOwner): Promise<void> {
     switch (method) {
       case 'item/agentMessage/delta':
         this.bufferDelta(params);
         return;
       case 'item/completed':
-        return this.recordCompletedItem(params as ItemNotification, conversationId);
+        return this.recordCompletedItem(params as ItemNotification, owner);
       case 'turn/completed':
-        return this.recordTurnCompleted(params as TurnNotification, conversationId);
+        return this.recordTurnCompleted(params as TurnNotification, owner.conversationId);
       case 'error':
-        return this.recordTurnError(params, conversationId);
+        return this.recordTurnError(params, owner.conversationId);
       default:
         // Lifecycle chatter streams but is never written.
         return;
@@ -153,10 +153,8 @@ export class ConversationStreamService implements OnModuleInit {
     this.partialByTurn.set(payload.turnId, current + payload.delta);
   }
 
-  private async recordCompletedItem(
-    params: ItemNotification,
-    conversationId: string,
-  ): Promise<void> {
+  private async recordCompletedItem(params: ItemNotification, owner: ThreadOwner): Promise<void> {
+    const conversationId = owner.conversationId;
     const item = params.item;
     if (!item?.type || !params.turnId) return;
 
@@ -169,24 +167,7 @@ export class ConversationStreamService implements OnModuleInit {
       // The completed text supersedes anything buffered, and the next item in
       // this turn starts from empty.
       this.partialByTurn.delete(params.turnId);
-
-      // Fill in the placeholder created when the turn started. A turn can emit
-      // several messages, so only one still-pending row is claimed at a time.
-      await this.messages.findOneAndUpdate(
-        {
-          conversationId: new Types.ObjectId(conversationId),
-          codexTurnId: params.turnId,
-          status: MessageStatus.Pending,
-        },
-        {
-          $set: {
-            content: item.text ?? '',
-            status: MessageStatus.Completed,
-            codexItemId: item.id ?? null,
-          },
-        },
-        { sort: { createdAt: 1 } },
-      );
+      await this.saveAgentMessage(owner, params.turnId, item);
       return;
     }
 
@@ -198,6 +179,48 @@ export class ConversationStreamService implements OnModuleInit {
       itemId: item.id ?? '',
       itemType: item.type,
       payload: item,
+    });
+  }
+
+  /**
+   * Stores one reply from the agent.
+   *
+   * A turn can produce several: a line saying what it is about to do, then the
+   * answer once the commands and searches are done. Only one placeholder row
+   * exists — created when the turn started — so the first message claims it and
+   * every later one is inserted. Updating alone would silently drop the actual
+   * answer and leave only the preamble, which is exactly what a turn that runs
+   * tools looks like when this is wrong.
+   */
+  private async saveAgentMessage(
+    owner: ThreadOwner,
+    turnId: string,
+    item: { id?: string; text?: string },
+  ): Promise<void> {
+    const conversationId = new Types.ObjectId(owner.conversationId);
+
+    const claimed = await this.messages.findOneAndUpdate(
+      { conversationId, codexTurnId: turnId, status: MessageStatus.Pending },
+      {
+        $set: {
+          content: item.text ?? '',
+          status: MessageStatus.Completed,
+          codexItemId: item.id ?? null,
+        },
+      },
+      { sort: { createdAt: 1 } },
+    );
+
+    if (claimed) return;
+
+    await this.messages.create({
+      conversationId,
+      userId: new Types.ObjectId(owner.userId),
+      role: MessageRole.Assistant,
+      content: item.text ?? '',
+      status: MessageStatus.Completed,
+      codexTurnId: turnId,
+      codexItemId: item.id ?? null,
     });
   }
 
