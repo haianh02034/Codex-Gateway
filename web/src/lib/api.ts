@@ -1,6 +1,8 @@
 import type {
   Approval,
   ApprovalDecision,
+  ChatMode,
+  ChatModeOption,
   CodexAdminAuthStatus,
   CodexAuthStatus,
   CodexLoginMethod,
@@ -94,6 +96,9 @@ export const api = {
 
   codexAuthStatus: () => request<CodexAuthStatus>('/api/codex/auth/status'),
   quota: () => request<Quota>('/api/codex/rate-limits'),
+  // Rendered from the gateway's definitions so the picker cannot drift from
+  // the presets that actually reach turn/start.
+  chatModes: () => request<ChatModeOption[]>('/api/codex/modes'),
 
   // Codex's own account, which is global to the host. Admin only, and the
   // gateway enforces that — these calls simply fail for anyone else.
@@ -128,10 +133,10 @@ export const api = {
     request<void>(`/api/conversations/${id}`, { method: 'DELETE' }),
 
   messages: (id: string) => request<Message[]>(`/api/conversations/${id}/messages`),
-  send: (id: string, text: string) =>
+  send: (id: string, text: string, mode?: ChatMode) =>
     request<SendMessageResult>(`/api/conversations/${id}/messages`, {
       method: 'POST',
-      body: { text },
+      body: mode ? { text, mode } : { text },
     }),
   interrupt: (id: string) =>
     request<{ interrupted: true }>(`/api/conversations/${id}/interrupt`, { method: 'POST' }),

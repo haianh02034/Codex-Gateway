@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 
 import { AuthUser } from '../auth/auth.types';
 import { CodexClientService, CodexRpcError } from '../codex/app-server/codex-client.service';
+import { ChatMode, presetFor } from '../codex/modes/chat-mode';
 import type { TurnStartResponse } from '../codex/protocol/generated/v2/TurnStartResponse';
 import type { UserInput } from '../codex/protocol/generated/v2/UserInput';
 import { ConversationStreamService } from './conversation-stream.service';
@@ -61,7 +62,12 @@ export class MessagesService {
    * steered into it rather than queued behind it, so a follow-up reaches the
    * model while it is still working instead of after it has finished.
    */
-  async send(user: AuthUser, conversationId: string, text: string): Promise<SendMessageResult> {
+  async send(
+    user: AuthUser,
+    conversationId: string,
+    text: string,
+    mode?: ChatMode,
+  ): Promise<SendMessageResult> {
     const conversation = await this.conversations.requireOwned(user, conversationId);
     const threadId = conversation.codexThreadId;
 
@@ -70,6 +76,13 @@ export class MessagesService {
     return this.locks.withLock(threadId, async () => {
       const fresh = await this.conversations.requireOwned(user, conversationId);
       const input: UserInput[] = [{ type: 'text', text, text_elements: [] }];
+
+      // A mode chosen now sticks to the conversation, so the next message does
+      // not silently revert to the previous one.
+      if (mode && mode !== fresh.mode) {
+        fresh.mode = mode;
+        await fresh.save();
+      }
 
       await this.messages.create({
         conversationId: fresh._id,
@@ -174,11 +187,13 @@ export class MessagesService {
     let response: TurnStartResponse;
     let threadId = conversation.codexThreadId;
 
+    // The app-server accepts an unknown effort without complaint, so the value
+    // never comes from a caller — only from the preset table.
+    const preset = presetFor(conversation.mode);
+    const turnParams = { threadId, input, model: preset.model, effort: preset.effort };
+
     try {
-      response = await this.codex.requestOrUnavailable<TurnStartResponse>('turn/start', {
-        threadId,
-        input,
-      });
+      response = await this.codex.requestOrUnavailable<TurnStartResponse>('turn/start', turnParams);
     } catch (error) {
       if (!isThreadNotLoaded(error)) {
         ticket.release();
@@ -190,8 +205,8 @@ export class MessagesService {
       try {
         threadId = await this.conversations.reviveThread(user, conversation);
         response = await this.codex.requestOrUnavailable<TurnStartResponse>('turn/start', {
+          ...turnParams,
           threadId,
-          input,
         });
       } catch (retryError) {
         ticket.release();

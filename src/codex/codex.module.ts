@@ -8,6 +8,8 @@ import { CodexAdminAuthController } from './auth/codex-admin-auth.controller';
 import { CodexAuthController } from './auth/codex-auth.controller';
 import { CodexAuthService } from './auth/codex-auth.service';
 import { CodexBinaryService } from './binary/codex-binary.service';
+import { ChatModesController } from './modes/chat-modes.controller';
+import { ChatModesService } from './modes/chat-modes.service';
 import { QuotaController } from './quota/quota.controller';
 import { QuotaService } from './quota/quota.service';
 
@@ -20,11 +22,12 @@ import { QuotaService } from './quota/quota.service';
  * Phase 5 registers real approval responders with ServerRequestRegistry.
  */
 @Module({
-  controllers: [CodexAuthController, CodexAdminAuthController, QuotaController],
+  controllers: [CodexAuthController, CodexAdminAuthController, QuotaController, ChatModesController],
   providers: [
     CodexAuthService,
     CodexBinaryService,
     QuotaService,
+    ChatModesService,
     ServerRequestRegistry,
     StdioTransport,
     { provide: CODEX_TRANSPORT, useExisting: StdioTransport },
@@ -36,6 +39,7 @@ import { QuotaService } from './quota/quota.service';
     ServerRequestRegistry,
     CodexAuthService,
     QuotaService,
+    ChatModesService,
   ],
 })
 export class CodexModule {}

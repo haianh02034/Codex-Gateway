@@ -45,7 +45,7 @@ export class ConversationsController {
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateConversationDto,
   ): Promise<ConversationView> {
-    return this.conversations.create(user, dto.title ?? '', dto.projectId ?? null);
+    return this.conversations.create(user, dto.title ?? '', dto.projectId ?? null, dto.mode);
   }
 
   @Get(':id')
@@ -93,7 +93,7 @@ export class ConversationsController {
     @Param('id') id: string,
     @Body() dto: SendMessageDto,
   ): Promise<SendMessageResult> {
-    return this.messages.send(user, id, dto.text);
+    return this.messages.send(user, id, dto.text, dto.mode);
   }
 
   @Post(':id/interrupt')

@@ -6,6 +6,8 @@ import type {
   ActivityItem,
   Approval,
   ApprovalDecision,
+  ChatMode,
+  ChatModeOption,
   Conversation,
   Message,
 } from '@/lib/types';
@@ -17,7 +19,9 @@ interface Props {
   activity: ActivityItem[];
   approvals: Approval[];
   running: boolean;
+  modes: ChatModeOption[];
   onSend: (text: string) => void;
+  onModeChange: (mode: ChatMode) => void;
   onInterrupt: () => void;
   onResolveApproval: (id: string, decision: ApprovalDecision) => void;
 }
@@ -29,9 +33,11 @@ export function Chat({
   activity,
   approvals,
   running,
+  modes,
   onSend,
-  onInterrupt,
+  onModeChange,
   onResolveApproval,
+  onInterrupt,
 }: Props) {
   const [draft, setDraft] = useState('');
   const streamRef = useRef<HTMLDivElement>(null);
@@ -109,6 +115,26 @@ export function Chat({
       </div>
 
       <div className="composer">
+        {modes.length > 0 && (
+          <div className="modes" role="group" aria-label="Chế độ trả lời">
+            {modes.map((option) => (
+              <button
+                key={option.mode}
+                type="button"
+                aria-pressed={conversation.mode === option.mode}
+                disabled={!option.available}
+                title={
+                  option.available
+                    ? `${option.description} (${option.model}, effort ${option.effort})`
+                    : `Tài khoản Codex hiện tại không có ${option.model}`
+                }
+                onClick={() => onModeChange(option.mode)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           value={draft}
           placeholder="Nhắn cho Codex…"

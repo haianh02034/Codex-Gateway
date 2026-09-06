@@ -1,4 +1,6 @@
-import { IsMongoId, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsMongoId, IsOptional, IsString, MaxLength } from 'class-validator';
+
+import { ChatMode } from '../../codex/modes/chat-mode';
 
 export class CreateConversationDto {
   /** Free-text label. Phase 4 can derive one from the first message instead. */
@@ -14,4 +16,8 @@ export class CreateConversationDto {
   @IsOptional()
   @IsMongoId({ message: 'projectId must be a valid id' })
   projectId?: string;
+
+  @IsOptional()
+  @IsEnum(ChatMode, { message: 'mode must be "instant" or "think"' })
+  mode?: ChatMode;
 }

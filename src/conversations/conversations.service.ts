@@ -14,6 +14,7 @@ import type { ThreadResumeResponse } from '../codex/protocol/generated/v2/Thread
 import type { ThreadStartResponse } from '../codex/protocol/generated/v2/ThreadStartResponse';
 import { Conversation, ConversationDocument, ConversationStatus } from './schemas/conversation.schema';
 import { ThreadLockService } from './thread-lock.service';
+import { ChatMode, DEFAULT_CHAT_MODE, presetFor } from '../codex/modes/chat-mode';
 import { ProjectsService } from '../projects/projects.service';
 import { ThreadRegistryService } from './thread-registry.service';
 
@@ -21,6 +22,7 @@ import { ThreadRegistryService } from './thread-registry.service';
 export interface ConversationView {
   id: string;
   projectId: string | null;
+  mode: ChatMode;
   title: string;
   status: ConversationStatus;
   workspacePath: string;
@@ -69,6 +71,7 @@ export class ConversationsService {
     user: AuthUser,
     title: string,
     projectId: string | null,
+    mode: ChatMode = DEFAULT_CHAT_MODE,
   ): Promise<ConversationView> {
     // Resolves the project's directory, or the caller's private one. Throws
     // before any thread exists if the path no longer passes the allowlist.
@@ -76,6 +79,7 @@ export class ConversationsService {
 
     const response = await this.codex.requestOrUnavailable<ThreadStartResponse>('thread/start', {
       cwd,
+      model: presetFor(mode).model,
       // Requested, but not always granted: Codex silently applies read-only
       // when the platform sandbox is not configured, rather than running
       // unsandboxed. /health/codex reports which one is actually in force.
@@ -89,6 +93,7 @@ export class ConversationsService {
     const created = await this.conversations.create({
       userId: new Types.ObjectId(user.id),
       projectId: projectId ? new Types.ObjectId(projectId) : null,
+      mode,
       codexThreadId: response.thread.id,
       title: title.trim(),
       status: ConversationStatus.Idle,
@@ -217,6 +222,7 @@ export class ConversationsService {
     const cwd = await this.projects.workspaceFor(user, conversation.projectId?.toString() ?? null);
     const response = await this.codex.requestOrUnavailable<ThreadStartResponse>('thread/start', {
       cwd,
+      model: presetFor(conversation.mode).model,
       sandbox: 'workspace-write',
       approvalPolicy: 'on-request',
     });
@@ -313,6 +319,7 @@ export class ConversationsService {
     return {
       id: conversation._id.toString(),
       projectId: conversation.projectId?.toString() ?? null,
+      mode: conversation.mode,
       title: conversation.title,
       status: conversation.status,
       workspacePath: conversation.workspacePath,

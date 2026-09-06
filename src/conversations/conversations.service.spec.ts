@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 import { AuthUser, UserRole } from '../auth/auth.types';
 import { CodexClientService } from '../codex/app-server/codex-client.service';
 import { ConversationsService } from './conversations.service';
+import { ChatMode } from '../codex/modes/chat-mode';
 import { ConversationDocument, ConversationStatus } from './schemas/conversation.schema';
 import { ThreadLockService } from './thread-lock.service';
 import { ProjectsService } from '../projects/projects.service';
@@ -44,6 +45,7 @@ class FakeConversationModel {
     status: ConversationStatus.Idle,
     workspacePath: '/workspaces',
     codexModel: 'gpt-5-codex',
+    mode: ChatMode.Instant,
     activeTurnId: null,
     get: () => new Date('2026-01-01T00:00:00.000Z'),
     save: jest.fn().mockResolvedValue(undefined),

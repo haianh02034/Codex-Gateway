@@ -8,6 +8,8 @@ import type {
   Approval,
   ApprovalDecision,
   AuthUser,
+  ChatMode,
+  ChatModeOption,
   Conversation,
   GatewayEvent,
   Message,
@@ -34,6 +36,7 @@ export function Workspace({ user, onSignOut }: { user: AuthUser; onSignOut: () =
   const [codexSignedIn, setCodexSignedIn] = useState(true);
   const [codexAccount, setCodexAccount] = useState<string | null>(null);
   const [showAccount, setShowAccount] = useState(false);
+  const [modes, setModes] = useState<ChatModeOption[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   // Read inside the socket callback, which is created once and must not close
@@ -64,14 +67,16 @@ export function Workspace({ user, onSignOut }: { user: AuthUser; onSignOut: () =
   useEffect(() => {
     void (async () => {
       try {
-        const [projectList, conversationList, status, currentQuota] = await Promise.all([
+        const [projectList, conversationList, status, currentQuota, modeList] = await Promise.all([
           api.projects(),
           api.conversations(),
           api.codexAuthStatus(),
           api.quota(),
+          api.chatModes().catch(() => []),
         ]);
         setProjects(projectList);
         setConversations(conversationList);
+        setModes(modeList);
         setCodexSignedIn(status.authenticated);
         setQuota(currentQuota);
 
@@ -222,12 +227,25 @@ export function Workspace({ user, onSignOut }: { user: AuthUser; onSignOut: () =
     }
 
     try {
-      await api.send(activeId, text);
+      await api.send(activeId, text, active?.mode);
     } catch (caught) {
       setError((caught as Error).message);
       setRunning(false);
       void loadConversation(activeId);
     }
+  }
+
+  /**
+   * Applied on the next message rather than immediately: the gateway records
+   * the mode when a turn starts, so changing it mid-turn would be a lie.
+   */
+  function changeMode(mode: ChatMode) {
+    if (!activeId) return;
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === activeId ? { ...conversation, mode } : conversation,
+      ),
+    );
   }
 
   async function interrupt() {
@@ -313,7 +331,9 @@ export function Workspace({ user, onSignOut }: { user: AuthUser; onSignOut: () =
               activity={activity}
               approvals={approvals}
               running={running}
+              modes={modes}
               onSend={send}
+              onModeChange={changeMode}
               onInterrupt={interrupt}
               onResolveApproval={resolveApproval}
             />

@@ -1,6 +1,8 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
+import { ChatMode, DEFAULT_CHAT_MODE } from '../../codex/modes/chat-mode';
+
 export type ConversationDocument = HydratedDocument<Conversation>;
 
 export enum ConversationStatus {
@@ -57,6 +59,13 @@ export class Conversation {
    */
   @Prop({ type: String, default: null })
   codexModel!: string | null;
+
+  /**
+   * How hard the model should think. Remembered per conversation so a choice
+   * made once carries into the next message.
+   */
+  @Prop({ required: true, enum: Object.values(ChatMode), default: DEFAULT_CHAT_MODE })
+  mode!: ChatMode;
 
   /**
    * Turn currently running, if any. turn/interrupt needs both the thread id and

@@ -108,6 +108,7 @@ tất cả — nên từ Phase 2, các endpoint login/logout của Codex nằm s
 | `POST` | `/api/admin/users` | **admin** — tạo tài khoản |
 | `PATCH` | `/api/admin/users/:id/active` | **admin** — bật/tắt tài khoản |
 | `GET` | `/api/codex/auth/status` | cần đăng nhập — Codex đã login chưa |
+| `GET` | `/api/codex/modes` | cần đăng nhập — chế độ trả lời |
 | `GET` | `/api/codex/rate-limits` | cần đăng nhập — hạn mức dùng chung |
 | `POST` | `/api/codex/rate-limits/refresh` | cần đăng nhập — đọc lại từ Codex |
 | `GET` | `/api/admin/codex/auth/status` | **admin** — kèm tài khoản và login đang chờ |
@@ -533,6 +534,36 @@ mọi người khác. Đường dẫn đó do gateway ghép từ root và userId
 tự tạo nó là an toàn.
 
 Path của project thì **phải có sẵn** — gateway không tạo thư mục từ chuỗi người dùng nhập.
+
+---
+
+## Chế độ trả lời
+
+| Chế độ | Model | `effort` | Dùng khi |
+|---|---|---|---|
+| **Instant** | `gpt-5.6-luna` | `low` | hỏi đáp thường ngày, cần nhanh |
+| **Think** | `gpt-5.6-luna` | `high` | câu hỏi khó, cần suy luận sâu |
+
+Cùng model, khác **reasoning effort** — đó là thứ Codex thực sự phơi ra: `model/list` trả
+về `supportedReasoningEfforts` cho từng model, và `turn/start` nhận một giá trị trong đó.
+Bày hai chế độ có tên thay vì sáu mức là lựa chọn có chủ đích; các mức ở giữa rất khó chọn
+đúng nếu không biết trước độ khó của việc.
+
+Chế độ được nhớ theo từng hội thoại. Client gửi kèm `mode` khi muốn đổi, và nó áp dụng từ
+tin nhắn đó trở đi.
+
+### Vì sao preset nằm trong gateway
+
+**App-server không validate `effort`.** Gửi một chuỗi vô nghĩa thì nó nhận, không báo lỗi,
+và lượt chat chạy khác đi mà không ai biết. Đã thử trực tiếp để xác nhận.
+
+Nên `effort` không bao giờ đến từ client — chỉ đến từ bảng preset trong
+`src/codex/modes/chat-mode.ts`. Client chọn *tên chế độ*, gateway dịch sang cặp
+(model, effort).
+
+Lúc kết nối, gateway đối chiếu preset với `model/list` một lần và cảnh báo nếu tài khoản
+hiện tại không có model hoặc mức effort đó — biến một lỗi khó hiểu lúc gửi tin thành một
+dòng log lúc khởi động.
 
 ---
 

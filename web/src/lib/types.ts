@@ -18,11 +18,24 @@ export interface Project {
   updatedAt: string;
 }
 
+export type ChatMode = 'instant' | 'think';
+
+export interface ChatModeOption {
+  mode: ChatMode;
+  label: string;
+  description: string;
+  model: string;
+  effort: string;
+  /** False when this account's catalog does not offer the model or effort. */
+  available: boolean;
+}
+
 export type ConversationStatus = 'idle' | 'running' | 'failed';
 
 export interface Conversation {
   id: string;
   projectId: string | null;
+  mode: ChatMode;
   title: string;
   status: ConversationStatus;
   workspacePath: string;
