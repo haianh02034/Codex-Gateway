@@ -1,13 +1,16 @@
 import type {
   Approval,
   ApprovalDecision,
+  CodexAdminAuthStatus,
   CodexAuthStatus,
+  CodexLoginMethod,
   Conversation,
   LoginResult,
   Message,
   Project,
   Quota,
   SendMessageResult,
+  StartLoginResult,
 } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_GATEWAY_URL ?? 'http://localhost:3000';
@@ -91,6 +94,21 @@ export const api = {
 
   codexAuthStatus: () => request<CodexAuthStatus>('/api/codex/auth/status'),
   quota: () => request<Quota>('/api/codex/rate-limits'),
+
+  // Codex's own account, which is global to the host. Admin only, and the
+  // gateway enforces that — these calls simply fail for anyone else.
+  codexAdminStatus: () => request<CodexAdminAuthStatus>('/api/admin/codex/auth/status'),
+  startCodexLogin: (method: CodexLoginMethod) =>
+    request<StartLoginResult>('/api/admin/codex/auth/login', {
+      method: 'POST',
+      body: { method },
+    }),
+  cancelCodexLogin: () =>
+    request<{ cancelled: boolean; detail: string }>('/api/admin/codex/auth/login/cancel', {
+      method: 'POST',
+    }),
+  codexLogout: () =>
+    request<{ state: string }>('/api/admin/codex/auth/logout', { method: 'POST' }),
 
   projects: () => request<Project[]>('/api/projects'),
   createProject: (name: string, workspacePath: string) =>

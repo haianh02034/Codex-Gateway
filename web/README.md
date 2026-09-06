@@ -22,6 +22,26 @@ gateway — đó là lý do `dev` ghim sẵn `-p 3001`.
 | Approval | hiện lệnh sắp chạy + lý do, ba lựa chọn: cho phép / cả phiên / từ chối |
 | Hoạt động | lệnh đã chạy, file đã sửa — kiểu IDE |
 | Hạn mức | thanh đo dùng chung, cập nhật realtime |
+| Tài khoản Codex | **chỉ admin** — xem tài khoản đang dùng, lấy link đổi sang tài khoản khác |
+
+## Đổi tài khoản Codex
+
+Chip email ở thanh trên **chỉ hiện với admin**. Bấm vào mở panel:
+
+1. Bấm **Lấy link đăng nhập** → link hiện ra trong ô, kèm nút *Mở trong tab mới* và *Sao chép link*.
+2. Đăng nhập bằng tài khoản ChatGPT muốn chuyển sang.
+3. Panel tự cập nhật khi xong — nó poll trạng thái 3 giây một lần trong lúc chờ.
+
+**Không cần đăng xuất trước.** Đã kiểm chứng: xin được link ngay khi đang đăng nhập, và
+huỷ thì tài khoản cũ nguyên vẹn. Nhờ vậy gateway vẫn dùng được trong lúc chờ ai đó hoàn
+tất việc đổi.
+
+Nút **mã thiết bị** dành cho khi bạn không ngồi ở máy chạy gateway: luồng trình duyệt hoàn
+tất qua `localhost:1455` của *máy đó*, nên ở xa sẽ không chạy được.
+
+Codex chỉ giữ **một** tài khoản cho cả máy — đây là đổi cho mọi người, không phải cài đặt
+riêng từng user. Thread đã có vẫn còn (chúng nằm theo `CODEX_HOME`, không theo tài khoản),
+nhưng từ đó trở đi mọi lượt chat tính vào hạn mức của tài khoản mới.
 
 ## Vài quyết định
 

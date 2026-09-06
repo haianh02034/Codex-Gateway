@@ -17,6 +17,7 @@ import type {
 import { useGatewaySocket } from '@/lib/useGatewaySocket';
 
 import { Chat } from './Chat';
+import { CodexAccountPanel } from './CodexAccountPanel';
 import { Sidebar } from './Sidebar';
 
 export function Workspace({ user, onSignOut }: { user: AuthUser; onSignOut: () => void }) {
@@ -31,6 +32,8 @@ export function Workspace({ user, onSignOut }: { user: AuthUser; onSignOut: () =
   const [running, setRunning] = useState(false);
   const [quota, setQuota] = useState<Quota | null>(null);
   const [codexSignedIn, setCodexSignedIn] = useState(true);
+  const [codexAccount, setCodexAccount] = useState<string | null>(null);
+  const [showAccount, setShowAccount] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Read inside the socket callback, which is created once and must not close
@@ -71,11 +74,32 @@ export function Workspace({ user, onSignOut }: { user: AuthUser; onSignOut: () =
         setConversations(conversationList);
         setCodexSignedIn(status.authenticated);
         setQuota(currentQuota);
+
+        // Only admins may read this, so a failure here is expected for
+        // everyone else and must not break the page.
+        if (user.role === 'admin') {
+          void api
+            .codexAdminStatus()
+            .then((admin) => setCodexAccount(admin.account?.email ?? null))
+            .catch(() => undefined);
+        }
         if (conversationList.length > 0) setActiveId(conversationList[0].id);
       } catch (caught) {
         setError((caught as Error).message);
       }
     })();
+  }, [user.role]);
+
+  /** After the Codex account changes, everything downstream of it is stale. */
+  const reloadCodexState = useCallback(async () => {
+    const [status, admin, currentQuota] = await Promise.all([
+      api.codexAuthStatus(),
+      api.codexAdminStatus().catch(() => null),
+      api.quota().catch(() => null),
+    ]);
+    setCodexSignedIn(status.authenticated);
+    setCodexAccount(admin?.account?.email ?? null);
+    if (currentQuota) setQuota(currentQuota);
   }, []);
 
   useEffect(() => {
@@ -238,6 +262,16 @@ export function Workspace({ user, onSignOut }: { user: AuthUser; onSignOut: () =
           Codex Gateway
         </div>
         <QuotaBadge quota={quota} />
+        {user.role === 'admin' && (
+          <button
+            className="codex-chip"
+            data-signed-in={codexSignedIn}
+            title="Tài khoản Codex dùng chung cho cả gateway"
+            onClick={() => setShowAccount(true)}
+          >
+            {codexSignedIn ? (codexAccount ?? 'Codex') : 'Codex: chưa đăng nhập'}
+          </button>
+        )}
         <div className="spacer" />
         <span className="who">{user.email}</span>
         <button className="btn btn-ghost btn-tiny" onClick={onSignOut}>
@@ -290,6 +324,13 @@ export function Workspace({ user, onSignOut }: { user: AuthUser; onSignOut: () =
           )}
         </main>
       </div>
+
+      {showAccount && (
+        <CodexAccountPanel
+          onClose={() => setShowAccount(false)}
+          onChanged={() => void reloadCodexState()}
+        />
+      )}
     </div>
   );
 }

@@ -79,6 +79,32 @@ export interface Quota {
   updatedAt: string | null;
 }
 
+export type CodexLoginMethod = 'browser' | 'deviceCode';
+
+/** A login waiting for a person to finish it in a browser. */
+export interface PendingLogin {
+  loginId: string;
+  method: CodexLoginMethod;
+  /** Open this to continue. */
+  url: string;
+  /** Device-code flow only: the short code to type after signing in. */
+  userCode: string | null;
+  startedAt: string;
+  expiresAt: string;
+}
+
+/** Admin view: adds the signed-in account and any login still in flight. */
+export interface CodexAdminAuthStatus extends CodexAuthStatus {
+  account: { email: string | null; planType: string | null } | null;
+  pendingLogin: PendingLogin | null;
+}
+
+export interface StartLoginResult {
+  state: 'pending';
+  login: PendingLogin;
+  replacedPreviousLogin: boolean;
+}
+
 export interface CodexAuthStatus {
   state: 'authenticated' | 'pending' | 'unauthenticated';
   authenticated: boolean;
